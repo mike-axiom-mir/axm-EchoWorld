@@ -1,6 +1,7 @@
 import { canonicalHash, cellId, createWorld } from './state.js';
 import { recordCommittedMemory } from '../memory/memory.js';
 import { createSpecialistReceipts } from '../specialists/matcher.js';
+import { mergeSpecialistProposals } from '../specialists/merge.js';
 import { neighborHandoffs } from '../handoff/events.js';
 
 function wake(cell) {
@@ -100,9 +101,11 @@ export function processEvent(world, event, { specialistFinishOrder = null } = {}
   cells.forEach(wake);
 
   const preRevision = world.revision;
+  const specialistReceipts = [];
   for (const cell of cells) {
-    createSpecialistReceipts(world, cell, event, specialistFinishOrder);
+    specialistReceipts.push(...createSpecialistReceipts(world, cell, event, specialistFinishOrder));
   }
+  mergeSpecialistProposals(world, specialistReceipts);
 
   applyCanonical(world, event);
   world.revision += 1;
