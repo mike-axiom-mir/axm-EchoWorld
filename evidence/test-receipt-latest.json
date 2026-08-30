@@ -1,0 +1,30 @@
+{
+  "schema": "axm.echoworld.test-receipt/v0.01",
+  "lane": "chatgpt/echoworld-lane-01",
+  "date": "2026-08-30",
+  "environment": {
+    "runtime": "Node.js v22.16.0",
+    "command": "npm test"
+  },
+  "result": {
+    "tests": 7,
+    "passed": 7,
+    "failed": 0
+  },
+  "verified": [
+    "memory-enabled and memory-disabled modes produce the same canonical truth hash for the starter scenario",
+    "failed truth transition creates no memory and does not advance revision",
+    "specialist finish order does not change canonical truth in the starter scenario",
+    "persistence roundtrip preserves canonical truth",
+    "bounded memory stays within declared budgets across 100 repeated relevant traversals",
+    "FIRE specialist matching excludes unrelated trading/diplomacy contracts",
+    "bounded handoff receipts do not directly mutate neighbor canonical truth"
+  ],
+  "claimBoundary": [
+    "This is a tiny v0.01 harness, not a production game engine.",
+    "No performance or massive-world scaling claim is established.",
+    "Specialists currently emit bounded receipts/proposals; they are not independent workers.",
+    "Handoff propagation beyond first-hop receipt generation is not implemented yet.",
+    "No AI is integrated."
+  ]
+}
