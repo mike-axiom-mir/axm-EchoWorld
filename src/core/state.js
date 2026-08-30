@@ -57,11 +57,16 @@ export function createWorld({ width = 16, height = 16, memoryEnabled = true } = 
       A: { actorId: 'A', x: 1, y: 1 },
       B: { actorId: 'B', x: 4, y: 1 },
     },
+    handoffState: {
+      seenEventIds: [],
+    },
     receipts: {
       truth: [],
       memory: [],
       specialists: [],
+      specialistMerges: [],
       handoffs: [],
+      handoffGuards: [],
     },
   };
 
