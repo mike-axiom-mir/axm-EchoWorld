@@ -20,12 +20,18 @@ See `AGENTS.md` for the one-chat/one-lane rule.
 - a bridge structure
 - canonical revision + SHA-256 truth hash
 - deterministic MOVE / DAMAGE_STRUCTURE / FIRE events
-- wake -> bounded specialist proposal receipts -> canonical commit -> memory update -> handoff receipt -> sleep ordering
+- wake -> bounded specialist proposal receipts -> deterministic proposal merge gate -> canonical commit -> memory update -> handoff receipt -> sleep ordering
 - bounded working, episodic, compressed, and lineage memory
 - deterministic memory importance score
 - memory compaction receipts
 - event-relevant specialist matcher
+- stale specialist proposal rejection
+- deterministic conflict preservation/rejection for contradictory specialist proposals
 - bounded neighbor handoff receipts
+- duplicate handoff rejection
+- causal-path cycle rejection
+- hop-limit enforcement
+- explicit bounded handoff propagation step
 - JSON persistence/reload
 - memory-enabled vs memory-disabled A/B replay
 
@@ -34,6 +40,8 @@ See `AGENTS.md` for the one-chat/one-lane rule.
 Memory and specialists are not physical truth authority.
 
 A failed canonical transition must create no memory about an event that never committed.
+
+Conflicting specialist proposals do not gain authority through worker finish order. In v0.01 they are preserved as a deterministic conflict and rejected from canonical mutation.
 
 ## Run
 
@@ -45,21 +53,24 @@ npm test
 
 ## Current evidence
 
-The initial lane-01 implementation was executed with Node.js v22.16.0:
+The hardened lane-01 implementation was executed with Node.js v22.16.0:
 
-- 7 tests
-- 7 passed
+- 13 tests
+- 13 passed
 - 0 failed
 
-See `evidence/test-receipt-latest.json` for the explicit claim boundary.
+GitHub Actions independently passed the same deterministic harness on the hardened code checkpoint.
+
+See `evidence/test-receipt-latest.json` for the explicit claim boundary and CI witness.
 
 ## Not proven yet
 
 - production-scale performance
 - large sleeping-world scaling
-- recursive multi-hop propagation
+- full queued world propagation scheduler
 - crash-safe durable persistence
 - independent/parallel specialist execution
+- domain-specific resolution policy for contradictory specialist proposals
 - story quality or emergent-world value
 - AI integration
 
