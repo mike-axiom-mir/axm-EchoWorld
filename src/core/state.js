@@ -38,6 +38,10 @@ export function createCell(x, y) {
 }
 
 export function createWorld({ width = 16, height = 16, memoryEnabled = true } = {}) {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 5 || height < 2) {
+    throw new RangeError('EchoWorld v0.01 requires integer dimensions of at least 5x2.');
+  }
+
   const cells = {};
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
@@ -59,6 +63,8 @@ export function createWorld({ width = 16, height = 16, memoryEnabled = true } = 
     },
     handoffState: {
       seenEventIds: [],
+      seenArrivalKeys: [],
+      schedulerJobs: {},
     },
     receipts: {
       truth: [],
@@ -67,6 +73,7 @@ export function createWorld({ width = 16, height = 16, memoryEnabled = true } = 
       specialistMerges: [],
       handoffs: [],
       handoffGuards: [],
+      handoffSchedules: [],
     },
   };
 
@@ -134,5 +141,24 @@ export function persistWorld(world) {
 }
 
 export function reloadWorld(serialized) {
-  return JSON.parse(serialized);
+  const world = JSON.parse(serialized);
+  if (world?.schema !== 'axm.echoworld/v0.01' || !world.cells || !world.actors) {
+    throw new Error('INVALID_ECHOWORLD_SNAPSHOT');
+  }
+
+  world.handoffState ??= {};
+  world.handoffState.seenEventIds ??= [];
+  world.handoffState.seenArrivalKeys ??= [];
+  world.handoffState.schedulerJobs ??= {};
+
+  world.receipts ??= {};
+  world.receipts.truth ??= [];
+  world.receipts.memory ??= [];
+  world.receipts.specialists ??= [];
+  world.receipts.specialistMerges ??= [];
+  world.receipts.handoffs ??= [];
+  world.receipts.handoffGuards ??= [];
+  world.receipts.handoffSchedules ??= [];
+
+  return world;
 }

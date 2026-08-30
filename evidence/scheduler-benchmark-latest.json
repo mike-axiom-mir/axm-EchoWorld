@@ -1,0 +1,79 @@
+{
+  "schema": "axm.echoworld.scheduler-benchmark/v0.01",
+  "observedAt": "2026-08-30T21:22:45.217Z",
+  "environment": {
+    "runtime": "v22.16.0",
+    "platform": "linux",
+    "architecture": "x64"
+  },
+  "method": {
+    "scheduler": "deterministic queued handoff propagation",
+    "timing": "performance.now wall-clock milliseconds",
+    "warning": "Local microbenchmark only; not a production-scale claim."
+  },
+  "results": [
+    {
+      "width": 16,
+      "height": 16,
+      "hopLimit": 8,
+      "repeats": 25,
+      "durationMs": {
+        "min": 4.803,
+        "median": 6.806,
+        "p95": 12.246,
+        "max": 14.361
+      },
+      "deterministicCounts": {
+        "processed": 143,
+        "accepted": 142,
+        "rejected": 1,
+        "generated": 446,
+        "coalescedBeforeQueue": 307,
+        "maxQueueObserved": 32
+      },
+      "canonicalMutationApplied": false
+    },
+    {
+      "width": 32,
+      "height": 32,
+      "hopLimit": 12,
+      "repeats": 15,
+      "durationMs": {
+        "min": 19.54,
+        "median": 21.554,
+        "p95": 24.727,
+        "max": 28.69
+      },
+      "deterministicCounts": {
+        "processed": 313,
+        "accepted": 312,
+        "rejected": 1,
+        "generated": 1056,
+        "coalescedBeforeQueue": 747,
+        "maxQueueObserved": 50
+      },
+      "canonicalMutationApplied": false
+    },
+    {
+      "width": 64,
+      "height": 64,
+      "hopLimit": 16,
+      "repeats": 10,
+      "durationMs": {
+        "min": 60.217,
+        "median": 62.05,
+        "p95": 68.257,
+        "max": 68.446
+      },
+      "deterministicCounts": {
+        "processed": 545,
+        "accepted": 544,
+        "rejected": 1,
+        "generated": 1920,
+        "coalescedBeforeQueue": 1379,
+        "maxQueueObserved": 64
+      },
+      "canonicalMutationApplied": false
+    }
+  ]
+}

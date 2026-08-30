@@ -3,6 +3,7 @@ import { recordCommittedMemory } from '../memory/memory.js';
 import { createSpecialistReceipts } from '../specialists/matcher.js';
 import { mergeSpecialistProposals } from '../specialists/merge.js';
 import { neighborHandoffs } from '../handoff/events.js';
+import { runHandoffScheduler } from '../handoff/scheduler.js';
 
 function wake(cell) {
   cell.wakeState = 'ACTIVE';
@@ -24,7 +25,14 @@ function fail(event, reason) {
 function validateMove(world, event) {
   const actor = world.actors[event.actorId];
   if (!actor) return fail(event, 'UNKNOWN_ACTOR');
-  if (event.x < 0 || event.y < 0 || event.x >= world.width || event.y >= world.height) {
+  if (
+    !Number.isInteger(event.x)
+    || !Number.isInteger(event.y)
+    || event.x < 0
+    || event.y < 0
+    || event.x >= world.width
+    || event.y >= world.height
+  ) {
     return fail(event, 'OUT_OF_BOUNDS');
   }
   return { committed: true };
@@ -34,6 +42,9 @@ function validateDamage(world, event) {
   const target = world.cells[event.cellId];
   if (!target) return fail(event, 'UNKNOWN_CELL');
   if (target.truthState.type !== 'structure') return fail(event, 'NOT_STRUCTURE');
+  if (!Number.isFinite(Number(event.amount)) || Number(event.amount) < 0) {
+    return fail(event, 'INVALID_DAMAGE_AMOUNT');
+  }
   return { committed: true };
 }
 
@@ -61,7 +72,7 @@ function applyCanonical(world, event) {
   if (event.type === 'DAMAGE_STRUCTURE') {
     const target = world.cells[event.cellId];
     const current = Number(target.truthState.properties.integrity ?? 0);
-    const next = Math.max(0, current - Math.max(0, Number(event.amount ?? 0)));
+    const next = Math.max(0, current - Number(event.amount));
     target.truthState.properties.integrity = next;
     if (next === 0) {
       target.truthState.properties.destroyed = true;
@@ -86,7 +97,15 @@ function validation(world, event) {
   return fail(event, 'UNKNOWN_EVENT_TYPE');
 }
 
-export function processEvent(world, event, { specialistFinishOrder = null } = {}) {
+export function processEvent(
+  world,
+  event,
+  {
+    specialistFinishOrder = null,
+    handoffHopLimit = 2,
+    handoffScheduler = null,
+  } = {},
+) {
   const check = validation(world, event);
   if (!check.committed) {
     return {
@@ -121,11 +140,16 @@ export function processEvent(world, event, { specialistFinishOrder = null } = {}
   };
   world.receipts.truth.push(truthReceipt);
 
+  const initialHandoffs = [];
   for (const cell of cells) {
     recordCommittedMemory(world, cell, event);
-    neighborHandoffs(world, cell, event);
+    initialHandoffs.push(...neighborHandoffs(world, cell, event, { hopLimit: handoffHopLimit }));
     sleep(cell, world.revision);
   }
+
+  const handoffScheduleReceipt = handoffScheduler && initialHandoffs.length > 0
+    ? runHandoffScheduler(world, initialHandoffs, handoffScheduler)
+    : null;
 
   return {
     committed: true,
@@ -133,10 +157,16 @@ export function processEvent(world, event, { specialistFinishOrder = null } = {}
     revision: world.revision,
     canonicalHash: truthReceipt.canonicalHash,
     affectedCellIds: ids,
+    handoffScheduleReceipt,
   };
 }
 
-export function runScenario({ memoryEnabled = true, specialistFinishOrder = null } = {}) {
+export function runScenario({
+  memoryEnabled = true,
+  specialistFinishOrder = null,
+  handoffHopLimit = 2,
+  handoffScheduler = null,
+} = {}) {
   const world = createWorld({ memoryEnabled });
   const events = [
     {
@@ -169,6 +199,12 @@ export function runScenario({ memoryEnabled = true, specialistFinishOrder = null
     },
   ];
 
-  for (const event of events) processEvent(world, event, { specialistFinishOrder });
+  for (const event of events) {
+    processEvent(world, event, {
+      specialistFinishOrder,
+      handoffHopLimit,
+      handoffScheduler,
+    });
+  }
   return world;
 }

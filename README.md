@@ -12,36 +12,37 @@ Implementation work is isolated to:
 
 See `AGENTS.md` for the one-chat/one-lane rule.
 
-## Implemented in the first proof
+## Implemented proof surface
 
-- 16x16 deterministic cell world
+- 16x16 default deterministic cell world
 - stable cell IDs
 - actors A and B
 - a bridge structure
 - canonical revision + SHA-256 truth hash
-- deterministic MOVE / DAMAGE_STRUCTURE / FIRE events
-- wake -> bounded specialist proposal receipts -> deterministic proposal merge gate -> canonical commit -> memory update -> handoff receipt -> sleep ordering
+- deterministic MOVE / DAMAGE_STRUCTURE / FIRE rules
+- wake -> bounded specialist proposals -> deterministic proposal merge gate -> canonical commit -> memory update -> handoff emission -> sleep ordering
 - bounded working, episodic, compressed, and lineage memory
-- deterministic memory importance score
-- memory compaction receipts
-- event-relevant specialist matcher
+- deterministic memory importance and compaction receipts
 - stale specialist proposal rejection
 - deterministic conflict preservation/rejection for contradictory specialist proposals
-- bounded neighbor handoff receipts
-- duplicate handoff rejection
-- causal-path cycle rejection
-- hop-limit enforcement
-- explicit bounded handoff propagation step
-- JSON persistence/reload
+- bounded handoff envelopes with duplicate, cycle, and hop-limit guards
+- deterministic queued handoff scheduler
+- deterministic coalescing of repeated arrivals from the same causal signal
+- hard processing and queue-capacity budgets with explicit incomplete receipts
+- persisted unfinished scheduler jobs that can resume after reload
+- JSON persistence/reload with snapshot-shape validation and non-canonical state backfill
 - memory-enabled vs memory-disabled A/B replay
+- local scheduler microbenchmark receipt
 
-## Hard invariant
+## Authority boundary
 
-Memory and specialists are not physical truth authority.
+Memory, specialists, handoff guards, scheduler jobs, and scheduler receipts are not physical truth authority.
 
-A failed canonical transition must create no memory about an event that never committed.
+A failed canonical transition creates no memory about an event that never committed.
 
-Conflicting specialist proposals do not gain authority through worker finish order. In v0.01 they are preserved as a deterministic conflict and rejected from canonical mutation.
+Conflicting specialist proposals do not gain authority through worker finish order. They are preserved as deterministic conflicts and rejected from canonical mutation.
+
+The handoff scheduler propagates bounded event envelopes only. It does not directly rewrite recipient-cell physical truth.
 
 ## Run
 
@@ -49,29 +50,37 @@ Requires Node.js 20+.
 
 ```bash
 npm test
+npm run benchmark
 ```
 
 ## Current evidence
 
-The hardened lane-01 implementation was executed with Node.js v22.16.0:
+The current lane-01 checkpoint was executed locally with Node.js v22.16.0:
 
-- 13 tests
-- 13 passed
+- 23 tests
+- 23 passed
 - 0 failed
 
-GitHub Actions independently passed the same deterministic harness on the hardened code checkpoint.
+The scheduler-order test checks every permutation of the initial four-way queue.
 
-See `evidence/test-receipt-latest.json` for the explicit claim boundary and CI witness.
+See:
+
+- `evidence/test-receipt-latest.json`
+- `evidence/scheduler-benchmark-latest.json`
+
+The benchmark is a local microbenchmark, not a production-scale claim.
 
 ## Not proven yet
 
 - production-scale performance
-- large sleeping-world scaling
-- full queued world propagation scheduler
-- crash-safe durable persistence
-- independent/parallel specialist execution
-- domain-specific resolution policy for contradictory specialist proposals
+- massive sleeping-world scaling
+- full recipient-cell wake/perception/specialist processing for accepted handoffs
+- crash-safe atomic durable storage
+- interruption-safe memory compaction
+- independent parallel specialist execution
+- domain-specific canonical resolution for contradictory specialist proposals
 - story quality or emergent-world value
+- multiplayer/network determinism
 - AI integration
 
 No AI belongs in v0.01.

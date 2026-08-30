@@ -1,56 +1,92 @@
 # EchoWorld v0.01 Architecture
 
-The v0.01 harness keeps canonical physical truth and experiential/advisory state separate.
+The v0.01 harness keeps canonical physical truth separate from experiential, advisory, and scheduling state.
 
-## Event lifecycle
+## Canonical event lifecycle
 
-For a committed event, the current prototype follows:
+For a committed canonical event:
 
-`event -> validate -> wake affected cells -> create bounded relevant specialist proposals -> deterministic proposal merge gate -> canonical event rule + commit -> truth receipt -> bounded memory update from committed event -> bounded handoff emission -> sleep`
+`event -> validate -> wake affected cells -> bounded relevant specialist proposals -> deterministic proposal merge gate -> explicit canonical rule + commit -> truth receipt -> bounded memory update from committed event -> bounded handoff emission -> sleep`
 
-The specialist proposal merge gate runs against the current base revision before the canonical event rule commits. It does not itself mutate physical truth.
+The specialist proposal merge gate runs against the current base revision before the canonical rule commits. It cannot mutate physical truth.
 
 ## Authority boundary
 
-Canonical truth contains world revision, actor positions, and cell physical truth state. Memory, specialist receipts, specialist merge receipts, handoff receipts, handoff guard state, wake state, and other experiential bookkeeping are excluded from the canonical hash.
+Canonical truth contains world revision, actor positions, and cell physical truth state.
+
+The canonical hash intentionally excludes:
+
+- memory;
+- wake state;
+- specialist receipts and merge receipts;
+- handoff envelopes and guard receipts;
+- handoff scheduler jobs and scheduler receipts.
 
 Memory may retain, compact, or forget experiential history. It cannot rewrite canonical physical truth.
 
-Specialists produce proposal receipts only. They do not directly mutate canonical truth.
+Specialists produce proposal receipts only. Conflicting proposals are sorted into a deterministic conflict receipt and rejected from canonical mutation.
 
-Conflicting specialist proposals are sorted into a deterministic conflict receipt and rejected from canonical mutation. Worker finish order therefore cannot grant truth authority.
+Handoffs and the scheduler move bounded causal envelopes. They do not directly rewrite recipient-cell physical truth.
 
-## Handoff boundary
+## Handoff envelope and guard
 
-Generated handoffs carry causal depth, a hop limit, and a causal path. The guard layer rejects:
+Each handoff carries:
 
-- duplicate event IDs already accepted;
-- unknown sender/recipient cells;
+- stable event ID;
+- causal event ID;
+- sender and recipient cell IDs;
+- causal depth and hop limit;
+- causal path;
+- source revision;
+- bounded parameters.
+
+The guard rejects:
+
+- missing IDs;
+- duplicate handoff IDs;
+- unknown cells;
 - invalid hop budgets;
 - events beyond their hop limit;
-- causal cycles where the recipient already appears in the path.
+- causal cycles;
+- repeated arrival of the same causal signal at the same recipient.
 
-`propagateAcceptedHandoff` is an explicit bounded propagation primitive. A terminal hop produces no further handoffs. This is not yet a full queued autonomous world-propagation scheduler.
+The causal-arrival key is:
 
-Recipient cells are not directly rewritten by the sender or by the handoff guard/propagation layer.
+`causalEventId | handoffType | recipientCellId`
 
-## Specialist merge boundary
+For the current SOUND-only propagation proof, one deterministic first arrival is retained and later equivalent arrivals are coalesced.
 
-Specialist receipts are checked against the world revision they observed.
+## Deterministic queued scheduler
 
-- stale base revision -> rejected;
-- non-proposed status -> rejected;
-- identical proposals for one target -> represented as one gate decision with all run IDs preserved;
-- contradictory proposals for one target -> deterministic conflict receipt, no selected proposal, no canonical mutation.
+The scheduler orders work by a stable key containing depth, causal ID, type, sender, recipient, and event ID.
 
-This proves order-independent conflict preservation for the current harness. It is not yet a domain-specific policy for deciding how a future canonical rule should resolve a real physical conflict.
+It has two independent resource bounds:
 
-## A/B proof
+- `maxProcessed`: maximum envelopes drained in one run;
+- `maxQueueSize`: maximum queued envelopes retained by one job.
 
-The same starter event stream is run with memory disabled and enabled. Both modes must produce the same canonical physical hash.
+A clean completion reports `DRAINED`.
 
-The memory-enabled mode may produce additional memory, specialist, merge, and handoff bookkeeping, but those outputs are not canonical physics.
+If processing remains or queue capacity drops work, the receipt reports `BUDGET_EXHAUSTED`. It never labels an incomplete wave as a clean drain.
+
+Unfinished processing-budget work remains in a persisted scheduler job. The job can survive JSON persistence/reload and resume deterministically.
+
+Queue-capacity overflow is fail-closed and explicit, but dropped work cannot be reconstructed from the receipt alone. Raising that bound or adding an external lineage queue remains future work.
+
+Every scheduler receipt records canonical hashes before and after. A changed hash would report `AUTHORITY_BREACH`.
+
+## Current scheduler boundary
+
+The scheduler currently propagates and guards event envelopes.
+
+It does **not yet** perform the complete recipient-cell lifecycle:
+
+`arrival -> wake cell -> relevance match -> local specialists -> memory/perception update -> new domain handoffs -> sleep`
+
+That is the next architectural layer and must preserve the same truth boundary.
 
 ## Persistence
 
-v0.01 includes a JSON serialization/reload proof. This demonstrates deterministic state roundtrip for the tiny harness, not crash-safe durable storage.
+v0.01 provides JSON serialization/reload, validates the snapshot shape, backfills missing non-canonical scheduler fields, and proves persisted unfinished scheduler jobs can resume.
+
+This is not crash-safe atomic durable storage.

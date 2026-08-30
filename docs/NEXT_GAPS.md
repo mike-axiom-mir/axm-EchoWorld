@@ -1,14 +1,26 @@
 # Next Gaps
 
-The next implementation work should strengthen deterministic proof rather than add new product layers.
+The next implementation work should strengthen deterministic proof rather than add product layers.
 
-Priority order:
+Completed in lane 01:
 
-1. duplicate handoff suppression;
-2. cycle-safe multi-hop propagation;
-3. stale proposal rejection;
-4. deterministic conflict merge;
-5. interruption-safe persistence/compaction tests;
-6. larger sleeping-world measurements.
+- duplicate handoff suppression;
+- cycle-safe bounded multi-hop envelopes;
+- stale proposal rejection;
+- deterministic conflict preservation;
+- queued deterministic scheduling;
+- processing and queue-capacity budgets;
+- persisted scheduler pause/resume;
+- local scheduler metrics.
+
+Priority order now:
+
+1. recipient-cell wake/sleep processing for accepted handoffs;
+2. bounded perception/memory update from accepted non-canonical signals;
+3. interruption-safe memory compaction;
+4. crash-safe atomic persistence and scheduler recovery;
+5. longer mixed-event/property tests;
+6. larger sleeping-world activation and storage measurements;
+7. lossless external overflow/lineage strategy where required.
 
 Keep all work for this chat on `chatgpt/echoworld-lane-01`.

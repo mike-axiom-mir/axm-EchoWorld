@@ -7,36 +7,46 @@
     "command": "npm test"
   },
   "result": {
-    "tests": 13,
-    "passed": 13,
+    "tests": 23,
+    "passed": 23,
     "failed": 0
-  },
-  "githubActions": {
-    "codeHeadSha": "3ef45191c95853cec53d92319ce32210d8cddc72",
-    "runId": 33334316002,
-    "conclusion": "success"
   },
   "verified": [
     "memory-enabled and memory-disabled modes produce the same canonical truth hash for the starter scenario",
-    "failed truth transition creates no memory and does not advance revision",
-    "specialist finish order does not change canonical truth in the starter scenario",
+    "scheduler-enabled replay preserves the memory-off versus memory-on canonical truth hash",
+    "failed movement creates no memory and does not advance revision",
+    "negative damage is rejected without truth or memory mutation",
+    "specialist finish order cannot change canonical truth",
     "persistence roundtrip preserves canonical truth",
+    "invalid snapshot shape is rejected",
     "bounded memory stays within declared budgets across 100 repeated relevant traversals",
-    "FIRE specialist matching excludes unrelated trading/diplomacy contracts",
-    "bounded handoff receipts do not directly mutate neighbor canonical truth",
-    "duplicate handoff is rejected after first acceptance",
-    "handoff cycles are rejected when the recipient already exists in the causal path",
-    "handoffs beyond the declared hop limit are rejected",
-    "accepted handoffs can advance to a terminal hop without directly mutating canonical truth",
-    "stale specialist proposals are rejected against the current canonical revision",
-    "conflicting specialist proposals produce the same deterministic conflict receipt regardless of input order and apply no canonical mutation"
+    "FIRE specialist matching excludes unrelated trading and diplomacy contracts",
+    "first-hop handoffs do not directly mutate neighbor canonical truth",
+    "duplicate handoff IDs are rejected",
+    "causal-path cycles are rejected",
+    "handoffs beyond their hop limit are rejected",
+    "terminal hops emit no further handoffs",
+    "stale specialist proposals are rejected",
+    "contradictory specialist proposals are order-independent and apply no canonical mutation",
+    "every permutation of an initial four-way handoff queue produces the same scheduler receipt and guard state",
+    "a bounded signal drains without canonical mutation",
+    "processing-budget exhaustion is explicit",
+    "queue-capacity overflow is explicit and cannot report a clean drain",
+    "the same causal signal cannot be accepted twice at one recipient",
+    "processEvent can explicitly drain emitted handoffs without direct neighbor truth mutation",
+    "a paused scheduler job survives persistence and resumes deterministically"
   ],
+  "benchmark": {
+    "path": "evidence/scheduler-benchmark-latest.json",
+    "boundary": "Local wall-clock microbenchmark only; not a production-scale claim."
+  },
   "claimBoundary": [
-    "This is a tiny v0.01 harness, not a production game engine.",
+    "This is a small v0.01 harness, not a production game engine.",
+    "The scheduler propagates guarded envelopes; it does not yet execute the complete recipient-cell lifecycle.",
+    "Queue-capacity overflow is explicit but dropped work is not losslessly recoverable in v0.01.",
+    "JSON persistence is not crash-safe atomic durable storage.",
     "No performance or massive-world scaling claim is established.",
-    "Specialists currently emit bounded deterministic receipts/proposals; they are not independent workers.",
-    "Guarded bounded propagation primitives exist, but there is no full queued world propagation scheduler yet.",
-    "Conflicting specialist proposals are deterministically preserved and rejected from canonical mutation; no domain-specific conflict resolution policy is claimed yet.",
+    "Specialists remain proposal-only and are not independent workers.",
     "No AI is integrated."
   ]
 }

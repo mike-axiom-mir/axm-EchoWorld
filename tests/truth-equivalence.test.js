@@ -51,3 +51,30 @@ test('persistence roundtrip preserves canonical truth', () => {
   const reloaded = reloadWorld(persistWorld(world));
   assert.equal(canonicalHash(world), canonicalHash(reloaded));
 });
+
+test('invalid negative damage fails without truth or memory mutation', () => {
+  const world = createWorld({ memoryEnabled: true });
+  const before = canonicalHash(world);
+
+  const result = processEvent(world, {
+    eventId: 'NEGATIVE_DAMAGE',
+    type: 'DAMAGE_STRUCTURE',
+    actorId: 'A',
+    cellId: 'C_2_1',
+    amount: -10,
+    structuralChange: true,
+  });
+
+  assert.equal(result.committed, false);
+  assert.equal(result.reason, 'INVALID_DAMAGE_AMOUNT');
+  assert.equal(world.revision, 0);
+  assert.equal(world.receipts.memory.length, 0);
+  assert.equal(canonicalHash(world), before);
+});
+
+test('invalid snapshot is rejected instead of silently rehydrated', () => {
+  assert.throws(
+    () => reloadWorld(JSON.stringify({ schema: 'wrong', cells: {}, actors: {} })),
+    /INVALID_ECHOWORLD_SNAPSHOT/,
+  );
+});
