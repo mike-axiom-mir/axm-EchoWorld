@@ -7,9 +7,14 @@
     "command": "npm test"
   },
   "result": {
-    "tests": 7,
-    "passed": 7,
+    "tests": 13,
+    "passed": 13,
     "failed": 0
+  },
+  "githubActions": {
+    "codeHeadSha": "3ef45191c95853cec53d92319ce32210d8cddc72",
+    "runId": 33334316002,
+    "conclusion": "success"
   },
   "verified": [
     "memory-enabled and memory-disabled modes produce the same canonical truth hash for the starter scenario",
@@ -18,13 +23,20 @@
     "persistence roundtrip preserves canonical truth",
     "bounded memory stays within declared budgets across 100 repeated relevant traversals",
     "FIRE specialist matching excludes unrelated trading/diplomacy contracts",
-    "bounded handoff receipts do not directly mutate neighbor canonical truth"
+    "bounded handoff receipts do not directly mutate neighbor canonical truth",
+    "duplicate handoff is rejected after first acceptance",
+    "handoff cycles are rejected when the recipient already exists in the causal path",
+    "handoffs beyond the declared hop limit are rejected",
+    "accepted handoffs can advance to a terminal hop without directly mutating canonical truth",
+    "stale specialist proposals are rejected against the current canonical revision",
+    "conflicting specialist proposals produce the same deterministic conflict receipt regardless of input order and apply no canonical mutation"
   ],
   "claimBoundary": [
     "This is a tiny v0.01 harness, not a production game engine.",
     "No performance or massive-world scaling claim is established.",
-    "Specialists currently emit bounded receipts/proposals; they are not independent workers.",
-    "Handoff propagation beyond first-hop receipt generation is not implemented yet.",
+    "Specialists currently emit bounded deterministic receipts/proposals; they are not independent workers.",
+    "Guarded bounded propagation primitives exist, but there is no full queued world propagation scheduler yet.",
+    "Conflicting specialist proposals are deterministically preserved and rejected from canonical mutation; no domain-specific conflict resolution policy is claimed yet.",
     "No AI is integrated."
   ]
 }
