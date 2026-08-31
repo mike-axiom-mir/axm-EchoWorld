@@ -2,11 +2,13 @@ import { createHash } from 'node:crypto';
 
 import { canonicalHash } from '../core/state.js';
 import {
-  acceptAndPropagateHandoff,
+  acceptHandoff,
   compareHandoffs,
+  deriveNextHandoffs,
   handoffArrivalKey,
   handoffOrderKey,
 } from './events.js';
+import { processAcceptedHandoff } from './arrival.js';
 
 const DEFAULT_LIMITS = Object.freeze({
   maxProcessed: 4096,
@@ -28,10 +30,26 @@ function ensureSchedulerState(world) {
   return world.handoffState.schedulerJobs;
 }
 
-function schedulerId(world, initialHandoffs, maxQueueSize) {
+function normalizedFinishOrder(value) {
+  if (value === null) return null;
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw new TypeError('arrivalSpecialistFinishOrder must be null or an array of strings.');
+  }
+  return [...value];
+}
+
+function schedulerId(
+  world,
+  initialHandoffs,
+  maxQueueSize,
+  processArrivals,
+  arrivalSpecialistFinishOrder,
+) {
   const identity = {
     revision: world.revision,
     maxQueueSize,
+    processArrivals,
+    arrivalSpecialistFinishOrder,
     handoffs: [...initialHandoffs].sort(compareHandoffs).map((handoff) => handoffOrderKey(handoff)),
   };
   return `HS_${createHash('sha256').update(JSON.stringify(identity)).digest('hex').slice(0, 16)}`;
@@ -53,24 +71,44 @@ function makeRunCounters() {
     generatedCount: 0,
     coalescedBeforeQueue: 0,
     droppedByQueueBudget: 0,
+    lifecycleProcessedCount: 0,
+    lifecycleRejectedCount: 0,
+    perceptionCount: 0,
+    memoryWriteCount: 0,
+    sourceVerifiedCount: 0,
+    sourceUnverifiedCount: 0,
     prequeueReasons: {},
     guardRejectionReasons: {},
+    lifecycleRejectionReasons: {},
   };
 }
 
 function addRunToJob(job, run) {
-  job.processedCount += run.processedCount;
-  job.acceptedCount += run.acceptedCount;
-  job.rejectedCount += run.rejectedCount;
-  job.generatedCount += run.generatedCount;
-  job.coalescedBeforeQueue += run.coalescedBeforeQueue;
-  job.droppedByQueueBudget += run.droppedByQueueBudget;
+  for (const key of [
+    'processedCount',
+    'acceptedCount',
+    'rejectedCount',
+    'generatedCount',
+    'coalescedBeforeQueue',
+    'droppedByQueueBudget',
+    'lifecycleProcessedCount',
+    'lifecycleRejectedCount',
+    'perceptionCount',
+    'memoryWriteCount',
+    'sourceVerifiedCount',
+    'sourceUnverifiedCount',
+  ]) {
+    job[key] += run[key];
+  }
 
   for (const [reason, count] of Object.entries(run.prequeueReasons)) {
     job.prequeueReasons[reason] = (job.prequeueReasons[reason] ?? 0) + count;
   }
   for (const [reason, count] of Object.entries(run.guardRejectionReasons)) {
     job.guardRejectionReasons[reason] = (job.guardRejectionReasons[reason] ?? 0) + count;
+  }
+  for (const [reason, count] of Object.entries(run.lifecycleRejectionReasons)) {
+    job.lifecycleRejectionReasons[reason] = (job.lifecycleRejectionReasons[reason] ?? 0) + count;
   }
 }
 
@@ -114,15 +152,23 @@ function enqueueIntoJob(world, job, candidates, run) {
 export function startHandoffSchedule(
   world,
   initialHandoffs,
-  { maxQueueSize = DEFAULT_LIMITS.maxQueueSize } = {},
+  {
+    maxQueueSize = DEFAULT_LIMITS.maxQueueSize,
+    processArrivals = true,
+    arrivalSpecialistFinishOrder = null,
+  } = {},
 ) {
   requirePositiveInteger(maxQueueSize, 'maxQueueSize');
   if (!Array.isArray(initialHandoffs)) {
     throw new TypeError('initialHandoffs must be an array.');
   }
+  if (typeof processArrivals !== 'boolean') {
+    throw new TypeError('processArrivals must be a boolean.');
+  }
+  const finishOrder = normalizedFinishOrder(arrivalSpecialistFinishOrder);
 
   const jobs = ensureSchedulerState(world);
-  const id = schedulerId(world, initialHandoffs, maxQueueSize);
+  const id = schedulerId(world, initialHandoffs, maxQueueSize, processArrivals, finishOrder);
   if (jobs[id]) return jobs[id];
 
   const job = {
@@ -131,6 +177,8 @@ export function startHandoffSchedule(
     baseRevision: world.revision,
     status: 'PENDING',
     maxQueueSize,
+    processArrivals,
+    arrivalSpecialistFinishOrder: finishOrder,
     initialCount: initialHandoffs.length,
     queue: [],
     runCount: 0,
@@ -140,9 +188,16 @@ export function startHandoffSchedule(
     generatedCount: 0,
     coalescedBeforeQueue: 0,
     droppedByQueueBudget: 0,
+    lifecycleProcessedCount: 0,
+    lifecycleRejectedCount: 0,
+    perceptionCount: 0,
+    memoryWriteCount: 0,
+    sourceVerifiedCount: 0,
+    sourceUnverifiedCount: 0,
     maxQueueObserved: 0,
     prequeueReasons: {},
     guardRejectionReasons: {},
+    lifecycleRejectionReasons: {},
     canonicalHashAtStart: canonicalHash(world),
   };
   jobs[id] = job;
@@ -165,20 +220,44 @@ export function drainHandoffSchedule(
   if (!job) throw new Error('UNKNOWN_HANDOFF_SCHEDULE');
 
   const run = makeRunCounters();
+  const lifecycleReceiptStart = world.receipts.cellLifecycles?.length ?? 0;
 
   while (job.queue.length > 0 && run.processedCount < maxProcessed) {
     const handoff = job.queue.shift();
     run.processedCount += 1;
 
-    const { guard, handoffs } = acceptAndPropagateHandoff(world, handoff);
-    if (guard.accepted) {
-      run.acceptedCount += 1;
-      run.generatedCount += handoffs.length;
-      enqueueIntoJob(world, job, handoffs, run);
-    } else {
+    const guard = acceptHandoff(world, handoff);
+    if (!guard.accepted) {
       run.rejectedCount += 1;
       incrementReason(run.guardRejectionReasons, guard.reason ?? 'UNKNOWN_REJECTION');
+      continue;
     }
+
+    run.acceptedCount += 1;
+    let handoffs = [];
+    if (job.processArrivals) {
+      const lifecycle = processAcceptedHandoff(world, handoff, {
+        specialistFinishOrder: job.arrivalSpecialistFinishOrder,
+        canonicalVerification: 'SCHEDULER',
+        schedulerId: job.schedulerId,
+      });
+      if (['PROCESSED', 'PROCESSED_PENDING_SCHEDULE_VERIFICATION'].includes(lifecycle.receipt.status)) {
+        run.lifecycleProcessedCount += 1;
+      } else {
+        run.lifecycleRejectedCount += 1;
+        incrementReason(run.lifecycleRejectionReasons, lifecycle.receipt.status);
+      }
+      if (lifecycle.perceptionReceipt) run.perceptionCount += 1;
+      if (lifecycle.memoryReceipt) run.memoryWriteCount += 1;
+      if (lifecycle.receipt.sourceCommitKnown) run.sourceVerifiedCount += 1;
+      else run.sourceUnverifiedCount += 1;
+      handoffs = lifecycle.handoffs;
+    } else {
+      handoffs = deriveNextHandoffs(world, handoff);
+    }
+
+    run.generatedCount += handoffs.length;
+    enqueueIntoJob(world, job, handoffs, run);
   }
 
   addRunToJob(job, run);
@@ -186,6 +265,19 @@ export function drainHandoffSchedule(
 
   const canonicalHashAfter = canonicalHash(world);
   const canonicalMutationApplied = job.canonicalHashAtStart !== canonicalHashAfter;
+
+  const lifecycleReceipts = (world.receipts.cellLifecycles ?? [])
+    .slice(lifecycleReceiptStart)
+    .filter((receipt) => receipt.schedulerId === job.schedulerId);
+  for (const lifecycleReceipt of lifecycleReceipts) {
+    lifecycleReceipt.schedulerCanonicalHashBefore = job.canonicalHashAtStart;
+    lifecycleReceipt.schedulerCanonicalHashAfter = canonicalHashAfter;
+    lifecycleReceipt.canonicalMutationApplied = canonicalMutationApplied;
+    if (lifecycleReceipt.status === 'PROCESSED_PENDING_SCHEDULE_VERIFICATION') {
+      lifecycleReceipt.status = canonicalMutationApplied ? 'AUTHORITY_BREACH' : 'PROCESSED';
+    }
+  }
+
   const exhausted = job.queue.length > 0 || job.droppedByQueueBudget > 0;
   job.status = canonicalMutationApplied
     ? 'AUTHORITY_BREACH'
@@ -199,6 +291,7 @@ export function drainHandoffSchedule(
     baseRevision: job.baseRevision,
     runIndex: job.runCount,
     status: job.status,
+    processArrivals: job.processArrivals,
     limits: {
       maxProcessed,
       maxQueueSize: job.maxQueueSize,
@@ -211,8 +304,15 @@ export function drainHandoffSchedule(
       generatedCount: run.generatedCount,
       coalescedBeforeQueue: run.coalescedBeforeQueue,
       droppedByQueueBudget: run.droppedByQueueBudget,
+      lifecycleProcessedCount: run.lifecycleProcessedCount,
+      lifecycleRejectedCount: run.lifecycleRejectedCount,
+      perceptionCount: run.perceptionCount,
+      memoryWriteCount: run.memoryWriteCount,
+      sourceVerifiedCount: run.sourceVerifiedCount,
+      sourceUnverifiedCount: run.sourceUnverifiedCount,
       prequeueReasons: stableReasons(run.prequeueReasons),
       guardRejectionReasons: stableReasons(run.guardRejectionReasons),
+      lifecycleRejectionReasons: stableReasons(run.lifecycleRejectionReasons),
     },
     cumulative: {
       processedCount: job.processedCount,
@@ -221,8 +321,15 @@ export function drainHandoffSchedule(
       generatedCount: job.generatedCount,
       coalescedBeforeQueue: job.coalescedBeforeQueue,
       droppedByQueueBudget: job.droppedByQueueBudget,
+      lifecycleProcessedCount: job.lifecycleProcessedCount,
+      lifecycleRejectedCount: job.lifecycleRejectedCount,
+      perceptionCount: job.perceptionCount,
+      memoryWriteCount: job.memoryWriteCount,
+      sourceVerifiedCount: job.sourceVerifiedCount,
+      sourceUnverifiedCount: job.sourceUnverifiedCount,
       prequeueReasons: stableReasons(job.prequeueReasons),
       guardRejectionReasons: stableReasons(job.guardRejectionReasons),
+      lifecycleRejectionReasons: stableReasons(job.lifecycleRejectionReasons),
     },
     remainingQueueCount: job.queue.length,
     maxQueueObserved: job.maxQueueObserved,
@@ -241,9 +348,15 @@ export function runHandoffScheduler(
   {
     maxProcessed = DEFAULT_LIMITS.maxProcessed,
     maxQueueSize = DEFAULT_LIMITS.maxQueueSize,
+    processArrivals = true,
+    arrivalSpecialistFinishOrder = null,
   } = {},
 ) {
-  const job = startHandoffSchedule(world, initialHandoffs, { maxQueueSize });
+  const job = startHandoffSchedule(world, initialHandoffs, {
+    maxQueueSize,
+    processArrivals,
+    arrivalSpecialistFinishOrder,
+  });
   return drainHandoffSchedule(world, job.schedulerId, { maxProcessed });
 }
 

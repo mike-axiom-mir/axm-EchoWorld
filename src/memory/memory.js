@@ -9,6 +9,14 @@ function scoreEvent(event) {
   return score;
 }
 
+function scoreObservedHandoff(handoff) {
+  let score = 0;
+  if (handoff.type === 'SOUND') score += 3;
+  if (['FIRE', 'DAMAGE_STRUCTURE'].includes(handoff.parameters?.sourceEventType)) score += 2;
+  if (handoff.causalDepth === 1) score += 1;
+  return score;
+}
+
 function compactWorking(cell) {
   const { working, compressed } = cell.memory;
   const budget = cell.memoryBudget.working;
@@ -17,8 +25,9 @@ function compactWorking(cell) {
   const overflow = working.splice(0, working.length - budget);
   const groups = new Map();
   for (const item of overflow) {
-    const key = `${item.eventClass}|${item.actorId ?? ''}`;
+    const key = `${item.provenanceClass ?? 'UNKNOWN'}|${item.eventClass}|${item.actorId ?? ''}`;
     const existing = groups.get(key) ?? {
+      provenanceClass: item.provenanceClass ?? 'UNKNOWN',
       eventClass: item.eventClass,
       actorId: item.actorId ?? null,
       count: 0,
@@ -33,7 +42,11 @@ function compactWorking(cell) {
 
   for (const summary of groups.values()) {
     const existing = compressed.find(
-      (item) => item.eventClass === summary.eventClass && item.actorId === summary.actorId,
+      (item) => (
+        item.provenanceClass === summary.provenanceClass
+        && item.eventClass === summary.eventClass
+        && item.actorId === summary.actorId
+      ),
     );
     if (existing) {
       existing.count += summary.count;
@@ -56,6 +69,26 @@ function compactWorking(cell) {
   };
 }
 
+function retainMemory(cell, memoryRecord, importance, lineageRef) {
+  if (importance >= 3) {
+    cell.memory.working.push(memoryRecord);
+  }
+  if (importance >= 5) {
+    cell.memory.episodic.push(memoryRecord);
+    if (cell.memory.episodic.length > cell.memoryBudget.episodic) {
+      cell.memory.episodic.splice(0, cell.memory.episodic.length - cell.memoryBudget.episodic);
+    }
+  }
+  if (importance >= 8 && lineageRef) {
+    cell.memory.lineageRefs.push(lineageRef);
+    if (cell.memory.lineageRefs.length > cell.memoryBudget.lineageRefs) {
+      cell.memory.lineageRefs.splice(0, cell.memory.lineageRefs.length - cell.memoryBudget.lineageRefs);
+    }
+  }
+
+  return compactWorking(cell);
+}
+
 export function recordCommittedMemory(world, cell, event) {
   if (!world.memoryEnabled) return null;
 
@@ -66,30 +99,16 @@ export function recordCommittedMemory(world, cell, event) {
     actorId: event.actorId ?? null,
     revision: world.revision,
     importance,
+    provenanceClass: 'CANONICAL',
   };
 
-  if (importance >= 3) {
-    cell.memory.working.push(memoryRecord);
-  }
-  if (importance >= 5) {
-    cell.memory.episodic.push(memoryRecord);
-    if (cell.memory.episodic.length > cell.memoryBudget.episodic) {
-      cell.memory.episodic.splice(0, cell.memory.episodic.length - cell.memoryBudget.episodic);
-    }
-  }
-  if (importance >= 8) {
-    cell.memory.lineageRefs.push(event.eventId);
-    if (cell.memory.lineageRefs.length > cell.memoryBudget.lineageRefs) {
-      cell.memory.lineageRefs.splice(0, cell.memory.lineageRefs.length - cell.memoryBudget.lineageRefs);
-    }
-  }
-
-  const compaction = compactWorking(cell);
+  const compaction = retainMemory(cell, memoryRecord, importance, event.eventId);
   const receipt = {
     schema: 'axm.echoworld.memory-receipt/v0.01',
     cellId: cell.cellId,
     eventId: event.eventId,
     revision: world.revision,
+    provenanceClass: 'CANONICAL',
     importance,
     retainedWorking: importance >= 3,
     retainedEpisodic: importance >= 5,
@@ -100,6 +119,59 @@ export function recordCommittedMemory(world, cell, event) {
   return receipt;
 }
 
+export function recordObservedHandoffMemory(
+  world,
+  cell,
+  handoff,
+  { sourceCommitKnown = false } = {},
+) {
+  if (!world.memoryEnabled) return null;
+
+  const importance = scoreObservedHandoff(handoff);
+  const memoryRecord = {
+    eventId: handoff.eventId,
+    eventClass: `OBSERVED_${handoff.type}`,
+    actorId: null,
+    revision: world.revision,
+    importance,
+    provenanceClass: 'OBSERVED',
+    causalEventId: handoff.causalEventId,
+    sourceRevision: handoff.sourceRevision,
+    sourceCommitKnown,
+    senderCellId: handoff.senderCellId,
+    recipientCellId: handoff.recipientCellId,
+    causalDepth: handoff.causalDepth,
+  };
+
+  const compaction = retainMemory(
+    cell,
+    memoryRecord,
+    importance,
+    sourceCommitKnown ? handoff.causalEventId : null,
+  );
+  const receipt = {
+    schema: 'axm.echoworld.perception-memory-receipt/v0.01',
+    cellId: cell.cellId,
+    eventId: handoff.eventId,
+    causalEventId: handoff.causalEventId,
+    observedAtRevision: world.revision,
+    sourceRevision: handoff.sourceRevision,
+    sourceCommitKnown,
+    provenanceClass: 'OBSERVED',
+    importance,
+    retainedWorking: importance >= 3,
+    retainedEpisodic: importance >= 5,
+    retainedLineage: importance >= 8 && sourceCommitKnown,
+    compaction,
+  };
+  world.receipts.memory.push(receipt);
+  return receipt;
+}
+
 export function memoryImportance(event) {
   return scoreEvent(event);
+}
+
+export function perceptionImportance(handoff) {
+  return scoreObservedHandoff(handoff);
 }

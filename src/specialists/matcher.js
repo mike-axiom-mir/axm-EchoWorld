@@ -2,6 +2,7 @@ const MATCHERS = Object.freeze({
   MOVE: ['collision', 'movement', 'memory-importance'],
   DAMAGE_STRUCTURE: ['material', 'structural', 'memory-importance', 'sound'],
   FIRE: ['material', 'fire-propagation', 'memory-importance', 'sound', 'witness-perception'],
+  SOUND: ['sound', 'witness-perception', 'memory-importance'],
 });
 
 export function matchSpecialists(event) {
@@ -20,7 +21,13 @@ export function createSpecialistReceipts(world, cell, event, finishOrder = null)
       cellId: cell.cellId,
       baseRevision: world.revision,
       eventRef: event.eventId,
-      proposal: { eventType: event.type, cellId: cell.cellId },
+      sourceKind: event.sourceKind ?? 'CANONICAL_EVENT',
+      causalEventId: event.causalEventId ?? event.eventId,
+      proposal: {
+        eventType: event.type,
+        cellId: cell.cellId,
+        sourceKind: event.sourceKind ?? 'CANONICAL_EVENT',
+      },
       status: 'PROPOSED',
     }));
 

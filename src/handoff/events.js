@@ -94,6 +94,10 @@ export function acceptHandoff(world, handoff) {
   ) reason = 'INVALID_HOP_BUDGET';
   else if (handoff.causalDepth > handoff.hopLimit) reason = 'HOP_LIMIT_EXCEEDED';
   else if ((handoff.path ?? []).includes(handoff.recipientCellId)) reason = 'CYCLE_DETECTED';
+  else if (!handoff.causalEventId) reason = 'MISSING_CAUSAL_EVENT_ID';
+  else if (!Number.isInteger(handoff.sourceRevision) || handoff.sourceRevision < 0) {
+    reason = 'INVALID_SOURCE_REVISION';
+  } else if (handoff.sourceRevision > world.revision) reason = 'FUTURE_SOURCE_REVISION';
   else if (state.seenArrivalKeys.includes(arrivalKey)) reason = 'DUPLICATE_CAUSAL_ARRIVAL';
 
   const accepted = reason === null;
@@ -113,6 +117,7 @@ export function acceptHandoff(world, handoff) {
     reason,
     causalDepth: handoff?.causalDepth ?? null,
     hopLimit: handoff?.hopLimit ?? null,
+    sourceRevision: handoff?.sourceRevision ?? null,
     senderCellId: handoff?.senderCellId ?? null,
     recipientCellId: handoff?.recipientCellId ?? null,
   };
@@ -139,7 +144,7 @@ export function deriveNextHandoffs(world, handoff) {
       eventId: nextEventId(handoff, sender.cellId, recipientCellId, nextDepth),
       senderCellId: sender.cellId,
       recipientCellId,
-      sourceRevision: world.revision,
+      sourceRevision: handoff.sourceRevision,
       causalDepth: nextDepth,
       path,
     });

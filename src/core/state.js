@@ -31,8 +31,11 @@ export function createCell(x, y) {
     },
     memoryBudget: { ...MEMORY_BUDGET },
     wakeState: 'DORMANT',
+    activationCount: 0,
     specialistSpawnBudget: 8,
     authorityClass: 'CELL_LOCAL',
+    lastWakeEventId: null,
+    lastSleepEventId: null,
     lastActiveRevision: 0,
   };
 }
@@ -74,6 +77,8 @@ export function createWorld({ width = 16, height = 16, memoryEnabled = true } = 
       handoffs: [],
       handoffGuards: [],
       handoffSchedules: [],
+      perceptions: [],
+      cellLifecycles: [],
     },
   };
 
@@ -140,11 +145,29 @@ export function persistWorld(world) {
   return JSON.stringify(world);
 }
 
+function backfillCell(cell) {
+  cell.memory ??= {};
+  cell.memory.working ??= [];
+  cell.memory.episodic ??= [];
+  cell.memory.compressed ??= [];
+  cell.memory.lineageRefs ??= [];
+  cell.memoryBudget ??= { ...MEMORY_BUDGET };
+  cell.wakeState ??= 'DORMANT';
+  cell.activationCount ??= 0;
+  cell.specialistSpawnBudget ??= 8;
+  cell.authorityClass ??= 'CELL_LOCAL';
+  cell.lastWakeEventId ??= null;
+  cell.lastSleepEventId ??= null;
+  cell.lastActiveRevision ??= 0;
+}
+
 export function reloadWorld(serialized) {
   const world = JSON.parse(serialized);
   if (world?.schema !== 'axm.echoworld/v0.01' || !world.cells || !world.actors) {
     throw new Error('INVALID_ECHOWORLD_SNAPSHOT');
   }
+
+  for (const cell of Object.values(world.cells)) backfillCell(cell);
 
   world.handoffState ??= {};
   world.handoffState.seenEventIds ??= [];
@@ -159,6 +182,8 @@ export function reloadWorld(serialized) {
   world.receipts.handoffs ??= [];
   world.receipts.handoffGuards ??= [];
   world.receipts.handoffSchedules ??= [];
+  world.receipts.perceptions ??= [];
+  world.receipts.cellLifecycles ??= [];
 
   return world;
 }
