@@ -1,46 +1,105 @@
 # Next Gaps
 
-The next implementation work should strengthen deterministic proof rather than add product layers.
+The next work should strengthen deterministic proof rather than add product layers.
 
-Completed in lane 01:
+## Completed in lane 01
 
-- deterministic canonical world rules and canonical hashing;
-- bounded CANONICAL and OBSERVED memory;
-- temporary specialist proposal receipts and deterministic merge;
-- bounded handoff guards and queued scheduling;
-- recipient SOUND lifecycle;
-- persistent deferred delivery for busy cells;
-- copy-on-write memory compaction and interruption recovery;
-- integrity-wrapped atomic snapshot envelopes;
-- deterministic snapshot generations and immediate parent IDs;
-- primary, backup, temp, and recovery-temp candidate validation;
-- highest-valid-generation recovery;
-- fail-closed same-generation conflict detection;
-- temp-file fsync, backup preservation, atomic primary rename, and directory fsync;
-- restartable recovery promotion;
-- nine abrupt child-process exit recovery checks;
-- composition of atomic snapshot loading with pending compaction recovery;
-- 67-test GitHub Actions checkpoint;
-- source-honest evidence and claim boundaries.
+- deterministic canonical world rules and hashing
+- bounded CANONICAL and OBSERVED memory
+- temporary specialist proposals and deterministic merge
+- bounded handoff guards and queued scheduling
+- SOUND recipient lifecycle
+- persistent deferred delivery for busy cells
+- interruption-safe copy-on-write compaction
+- atomic integrity-wrapped snapshots and process-exit recovery
+- primary / backup / temp / recovery-temp validation
+- monotonic append-only writer fencing tokens
+- provisional claims, activation, heartbeat, durable base, and release records
+- one-active-writer cooperative election
+- stale-owner takeover and old-handle fencing
+- checkpoint quiescence barrier
+- checkpoint canonical and operational evidence
+- snapshot v0.02 checkpoint integration with v0.01 legacy reads
+- leased snapshot base comparison
+- fencing of older leased transient candidates
+- lease assertions around atomic write boundaries
+- lease claim/activation/base/release process-exit tests
+- 85-test GitHub Actions checkpoint
+- source-honest evidence and claim boundaries
 
-Priority order now:
+## Priority order now
 
-1. deterministic single-writer lease with stale-owner recovery;
-2. fencing token or compare-and-swap generation admission to prevent stale writers;
-3. checkpoint barrier spanning canonical mutation, active queue, deferred mailbox, and compaction journal;
-4. process-exit tests during lock acquisition, ownership transfer, checkpoint admission, and lock release;
-5. complete bounded parent-chain verification and snapshot lineage retention;
-6. trusted external recovery when every local snapshot candidate is invalid;
-7. explicit cross-revision policy for paused scheduler and deferred mailbox work;
-8. fairness and ownership rules across unrelated schedulers targeting one cell;
-9. longer mixed-event/property tests;
-10. platform matrix for Linux filesystems, Windows, macOS, and controlled network-filesystem experiments;
-11. dedicated atomic persistence, fsync, recovery, mailbox, and compaction benchmarks;
-12. larger sleeping-world activation, journal, and storage measurements;
-13. material-aware attenuation and domain propagation rules;
-14. lossless external overflow lineage for active queue or mailbox capacity failure;
-15. genuine concurrent execution experiments after single-writer and checkpoint boundaries are proven.
+1. **Lease-ledger archival and bounded retention**
+   - preserve monotonic fencing evidence
+   - checkpoint old claims/heartbeats/releases
+   - prove safe deletion or archival rules
+
+2. **Clock hardening**
+   - monotonic local clock abstraction
+   - rollback detection
+   - process/VM suspension handling
+   - restart continuity evidence
+
+3. **Stronger persisted compare-and-swap**
+   - platform-native lock or owner file beneath cooperative fencing
+   - narrow/close the interval between final assertion and primary rename
+   - prove stale writers cannot install after takeover
+
+4. **Immutable checkpoint session**
+   - freeze or hand off an immutable world snapshot at admission
+   - detect caller mutation between admission and serialization
+   - bind canonical state, queues, mailboxes, compaction journals, and receipts to one checkpoint object
+
+5. **Complete snapshot and fencing lineage**
+   - walk parent IDs
+   - verify generation continuity
+   - verify fencing-token transitions
+   - define bounded historical retention
+
+6. **More lease fault injection**
+   - heartbeat-write interruption
+   - every leased write-authority boundary
+   - stale release after replacement commit
+   - contender crash during election
+
+7. **High-contention and fairness evidence**
+   - many local contenders
+   - deterministic election receipts
+   - starvation/fairness policy
+   - unrelated schedulers competing for one cell
+
+8. **Platform and durability matrix**
+   - Linux filesystem variants
+   - Windows
+   - macOS
+   - controlled network-filesystem experiments
+   - power-loss testing on controlled hardware where practical
+
+9. **External recovery**
+   - trusted lineage or archive when every local snapshot candidate is invalid
+   - corrupt-before memory repair from trusted evidence
+   - lossless queue/mailbox overflow lineage
+
+10. **Long-stream and scale measurements**
+    - mixed-event property tests
+    - lease-ledger growth
+    - checkpoint/persistence latency
+    - larger sleeping-world activation and storage
+
+11. **World-domain growth after substrate proof**
+    - material-aware attenuation
+    - richer deterministic propagation
+    - cross-revision paused-work policy
+    - genuine concurrent execution experiments
+
+## Boundaries that must remain visible
+
+- cooperative writer protocol, not hostile filesystem security
+- local supplied milliseconds, not distributed consensus time
+- no universal sudden-power-loss guarantee
+- no complete lineage proof yet
+- no full caller-mutation freeze yet
+- no performance or massive-world claim yet
+- no AI in v0.01
 
 Keep all work for this chat on `chatgpt/echoworld-lane-01`.
-
-No AI belongs in v0.01.

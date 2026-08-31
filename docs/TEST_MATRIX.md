@@ -1,154 +1,166 @@
 # EchoWorld v0.01 Test Matrix
 
-## Implemented checks
-
-### Canonical truth
-
-- memory-disabled and memory-enabled starter replay produce the same canonical hash
-- scheduler-enabled replay retains the same memory-off versus memory-on canonical hash
-- rejected movement creates no memory and no truth revision
-- negative damage is rejected without truth or memory mutation
-- specialist finish-order variation does not change canonical hash
-- contradictory specialist proposal order does not change its conflict receipt
-- direct recipient lifecycle records identical before/after canonical hashes
-- scheduler batches annotate lifecycle receipts with an unchanged canonical hash witness
-- deferred mailbox operations remain inside the unchanged scheduler hash witness
-- compaction and recovery paths leave canonical hash unchanged
-- atomic snapshot envelopes reject a reloaded world whose canonical hash differs
-- every recovered process-exit snapshot has the expected canonical hash
-
-### Memory and provenance
-
-- repeated canonical traversal stays inside declared memory budgets
-- 40 different observed signals can wake one cell while memory remains bounded
-- observed memory records causal event ID, source revision, causal depth, and OBSERVED provenance
-- committed-source handoffs are marked `sourceCommitKnown: true`
-- synthetic unverified signals remain OBSERVED and do not become canonical
-- memory-disabled recipient processing writes no memory
-- repeated/seen handoffs cannot create a second lifecycle or memory write
-- deferred arrival creates no perception or memory before actual acceptance
-- expiry and retry exhaustion create no false perception or memory
-- compaction summary keys keep CANONICAL and OBSERVED records separate
-
-### Interruption-safe memory compaction
-
-- copy-on-write compaction preserves semantic record count in the tested plan
-- working and compressed arrays stay inside declared budgets after commit
-- one deterministic final commit receipt is written
-- interruption after journal prepare recovers
-- interruption after working-array swap recovers
-- interruption after compressed-array swap recovers
-- interruption after commit receipt clears the journal without duplicating the final receipt
-- recovery is idempotent
-- corrupt after-image restores the complete valid before-image without fake memory
-- corrupt before-image retains the journal and enters `REPAIR`
-- repeated reload does not duplicate the same corrupt-before failure receipt
-
-### Handoffs, lifecycle, and deferred delivery
-
-- duplicate, causal-cycle, hop-limit, future-revision, and repeated-arrival guards
-- sender does not directly mutate neighbor truth
-- terminal hop emits no further handoffs
-- all 24 permutations of the initial four-way queue produce the same scheduler receipt and guard state
-- processing, queue, and mailbox capacity failures are explicit
-- accepted SOUND arrival wakes, perceives, optionally remembers, relays, and sleeps
-- deferred delivery releases exactly once when recipient becomes DORMANT
-- deferred event and causal-arrival deduplication works across scheduler jobs
-- deterministic TTL expiry and retry exhaustion fail closed
-- mailbox release order is independent of initial input order
-- deferred queue and policy survive persistence and resume
-
-### Atomic snapshot envelope
-
-- generation 1 and generation 2 form a verified immediate parent chain
-- previous primary is retained as backup
-- installed primary reopens and passes every integrity check
-- payload tampering is rejected before world reload
-- invalid generation-looking temp content receives no authority
-- same-generation identical candidates resolve to primary by stable priority
-- same-generation different valid identities fail closed
-- a store with existing files but no valid candidate is not overwritten
-- atomic snapshot loading composes with pending memory-compaction recovery
-
-### Deterministic recovery selection
-
-- corrupt primary falls back to valid backup and promotes it
-- valid higher-generation temp beats older valid primary and is promoted
-- invalid temp is ignored and cleaned while valid primary remains authoritative
-- promoted primary is reopened and checked against selected snapshot ID
-- transient files are cleaned after successful recovery
-- recovery selects no candidate when all candidates are invalid
-
-### Abrupt save-process exits
-
-The child worker exits with code 86 at:
-
-- `AFTER_TEMP_WRITE`
-- `AFTER_TEMP_FSYNC`
-- `AFTER_BACKUP_RENAME`
-- `AFTER_BACKUP_DIRECTORY_FSYNC`
-- `AFTER_PRIMARY_RENAME`
-- `AFTER_PRIMARY_DIRECTORY_FSYNC`
-
-After each exit:
-
-- a later process recovers generation 2;
-- actor A is at x=2;
-- world revision is 1;
-- canonical hash matches the recovered envelope;
-- the recovered primary validates as generation 2.
-
-### Abrupt recovery-process exits
-
-The recovery worker exits with code 86 at:
-
-- `AFTER_RECOVERY_TEMP_FSYNC`
-- `AFTER_RECOVERY_PRIMARY_RENAME`
-- `AFTER_RECOVERY_DIRECTORY_FSYNC`
-
-After each exit, another recovery completes and installs the expected generation 2 primary.
-
-### Persistence mechanics
-
-- temp file is fsynced before normal installation
-- backup temp is fsynced before backup rename
-- directory is fsynced after backup rename
-- primary is installed with same-directory rename
-- directory is fsynced after primary rename
-- installed primary is verified
-- recovery temp is fsynced before recovery promotion
-- promoted primary is verified
-- directory fsync unsupported behavior fails closed by default
-
 ## Current result
 
-GitHub Actions run `33377190670`, job `99441212943`:
+GitHub Actions implementation run `33405590474`, job `99532258471`:
 
-- 67 tests
-- 67 passed
+- 85 tests
+- 85 passed
 - 0 failed
 - 0 cancelled
 - 0 skipped
+- 0 todo
 - Node.js v22.23.2
-- Ubuntu 24.04
-- duration `2025.432072 ms`
-- merge ref `e1a61f0b3b8ccf965fe3015c0ec07d20d8848366`
+- Ubuntu 24.04.4
+- duration `2086.800059 ms`
+- merge ref `bc2ac474b60bd91e3574e5e597c44d1287c5113b`
+
+## Existing deterministic-world checks
+
+### Canonical truth
+
+- memory-disabled and memory-enabled replay produce the same canonical hash
+- scheduler-enabled replay retains memory-off versus memory-on equivalence
+- rejected movement creates no memory and no revision
+- invalid damage creates no truth or memory mutation
+- specialist finish order cannot change canonical truth
+- conflicting proposals are order-independent and non-authoritative
+- direct and scheduler-batch lifecycle hash witnesses remain unchanged
+- deferred mailbox and compaction paths remain non-canonical
+
+### Memory and provenance
+
+- canonical and observed memory stay bounded
+- observed memory retains causal provenance
+- memory-disabled lifecycle writes no memory
+- duplicate arrivals cannot create duplicate perception/memory
+- compaction never merges CANONICAL and OBSERVED provenance
+- corrupted after-image rolls back without fake memory
+- corrupted before-image enters explicit REPAIR
+
+### Handoffs and lifecycle
+
+- duplicate, cycle, hop-limit, future-revision, and repeated-arrival guards
+- all 24 initial four-way queue permutations produce the same scheduler result
+- processing, queue, and mailbox budgets fail explicitly
+- SOUND arrival wakes, processes, optionally remembers, relays, and sleeps
+- deferred delivery releases exactly once
+- TTL and retry exhaustion fail closed
+- deferred state survives persistence/reload
+
+### Atomic snapshot persistence
+
+- generation chain and backup retention
+- payload tamper rejection
+- highest-valid-generation selection
+- same-generation identity conflict refusal
+- corrupt-primary fallback
+- valid-temp promotion and invalid-temp rejection
+- refusal to overwrite all-invalid store
+- process-exit recovery at six save stages
+- restartable recovery at three promotion stages
+- pending compaction recovery after atomic load
+
+## Writer lease and fencing checks
+
+### Active ownership
+
+1. **one active writer lease blocks a second cooperative writer**
+2. **simultaneous cooperative claims elect exactly one active writer**
+3. **release permits immediate acquisition with a strictly higher fencing token**
+4. **heartbeat renewal extends ownership and later stale takeover fences the old writer**
+5. **an invalid burned claim cannot become active and the next token remains monotonic**
+
+### Checkpoint admission
+
+6. **leased checkpoint embeds fencing evidence and advances the lease base**
+7. **a stale checkpoint base is rejected even while the same lease remains current**
+8. **a stale owner cannot checkpoint after a higher fencing token takes over**
+9. **checkpoint barrier rejects an unquiesced receiving cell**
+10. **checkpoint operational hash covers pending queues, mailboxes, and compaction journals**
+11. **checkpoint tampering invalidates the deterministic snapshot identity**
+
+### Transient fencing and base races
+
+12. **new fencing token discards an older leased temp that never reached primary commit**
+13. **lease expiry during save prevents primary installation and the next owner fences the temp**
+14. **leased checkpoint refuses a durable base changed by a non-cooperating writer**
+
+### Lease process-exit recovery
+
+15. **stale-owner recovery succeeds after process exit at AFTER_CLAIM_FSYNC**
+16. **stale-owner recovery succeeds after process exit at AFTER_ACTIVATION_FSYNC**
+17. **stale-owner recovery succeeds after process exit at AFTER_BASE_RECORD_FSYNC**
+18. **process exit after durable release permits immediate replacement**
+
+## What the new tests prove
+
+- exclusive claim filenames allocate monotonic fence tokens;
+- corrupt claim records cannot activate;
+- one current cooperative writer is elected;
+- heartbeats extend active expiry;
+- expired/stale owners lose leased checkpoint authority;
+- release is scoped to its own token and permits higher-token replacement;
+- checkpoint admissions bind writer, token, base, canonical state, and selected operational state;
+- active cells are rejected from default checkpoint admission;
+- a stale lease base cannot be silently reused;
+- a tested raw durable-base change is detected;
+- an old leased temp does not outrank a newer writer after takeover;
+- process exit after durable claim/activation/base/release records remains recoverable.
+
+## Compatibility checks
+
+The original unleased atomic snapshot tests continue to pass.
+
+Legacy `axm.echoworld.atomic-snapshot/v0.01` remains readable.
+
+Current leased/unleased writes use `axm.echoworld.atomic-snapshot/v0.02`; checkpoint may be null for compatibility writes.
 
 ## Required later checks
 
-- simultaneous writer collision and fencing
-- stale lock recovery
-- process exit during writer-lock acquisition and release
-- complete parent-chain verification
-- transaction spanning canonical mutation, queue, mailbox, and compaction journal
-- physical power-loss tests
-- filesystem and operating-system matrix
-- network filesystem behavior
-- cross-device path rejection
-- all-candidates-corrupt external recovery
-- corrupted episodic memory quarantine and repair
-- missing lineage reference repair
+### Lease clock and lifecycle
+
+- heartbeat process exit
+- clock rollback and monotonic-clock evidence
+- VM/process suspension beyond expiry
+- stale release after newer writer commits
+- high heartbeat count and ledger growth
+- safe lease-ledger archival/compaction
+
+### Stronger writer exclusion
+
+- platform-native lock or compare-and-swap primitive
+- hostile writer bypass attempts
+- raw filesystem edit after final pre-rename assertion
+- many-process contention and fairness
+- network filesystem semantics
+
+### Checkpoint transaction
+
+- mutation after admission but before serialization
+- mutation during asynchronous save
+- immutable snapshot handoff or mutation-session freeze
+- full queue/mailbox/compaction state identity rather than selected projection only
+- process exit at every leased write-authority boundary
+
+### Lineage and recovery
+
+- complete parent-chain traversal
+- fencing-token transition audit across generations
+- bounded historical retention
+- external trusted recovery when all local candidates are invalid
+
+### Platform and durability
+
+- Windows and macOS matrix
+- multiple Linux filesystems
+- controlled power-loss tests
+- storage-controller durability
+- dedicated lease/checkpoint/fsync/recovery benchmarks
+
+### World proof
+
 - long mixed-event property testing
-- larger sleeping world with tiny active region
-- material-aware attenuation and domain propagation
-- atomic persistence throughput, latency, and recovery benchmarks
+- larger sleeping-world resource measurements
+- material-aware attenuation and propagation
+- genuine concurrent cell execution and deterministic fairness

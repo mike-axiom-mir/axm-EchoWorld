@@ -1,199 +1,217 @@
 # EchoWorld v0.01 Architecture
 
-The v0.01 harness keeps canonical physical truth separate from experiential, advisory, perception, activation, deferred-delivery, memory-compaction, persistence, and scheduling state.
+The harness keeps canonical physical truth separate from experiential, advisory, perception, activation, scheduling, memory maintenance, persistence, and writer-coordination state.
 
 ## Canonical event lifecycle
 
-For a committed canonical event:
+```text
+event
+→ validate
+→ wake affected cells
+→ bounded relevant specialist proposals
+→ deterministic proposal merge gate
+→ explicit canonical rule + commit
+→ truth receipt
+→ bounded CANONICAL memory
+→ journaled compaction when needed
+→ bounded handoff emission
+→ sleep
+```
 
-`event -> validate -> wake affected cells -> bounded relevant specialist proposals -> deterministic proposal merge gate -> explicit canonical rule + commit -> truth receipt -> bounded canonical-event memory -> journaled compaction if needed -> bounded handoff emission -> sleep`
-
-The specialist proposal merge gate runs against the current base revision before the canonical rule commits. It cannot mutate physical truth.
+Only the explicit canonical rule changes physical truth.
 
 ## Recipient handoff lifecycle
 
-After a handoff passes the deterministic guard, the receiving cell performs:
+```text
+accepted SOUND arrival
+→ wake recipient
+→ relevant temporary specialists
+→ deterministic proposal merge
+→ OBSERVED perception receipt
+→ optional bounded OBSERVED memory
+→ journaled compaction when needed
+→ bounded relay handoffs
+→ sleep
+```
 
-`accepted arrival -> wake -> SOUND relevance match -> temporary specialist receipts -> deterministic proposal merge gate -> OBSERVED perception receipt -> bounded observed memory if enabled -> journaled compaction if needed -> bounded relay handoffs -> sleep`
-
-Current recipient processing is limited to the tested `SOUND` handoff class.
-
-The recipient lifecycle does not advance world revision or change cell physical truth.
+Recipient processing does not advance world revision or directly rewrite cell physical truth.
 
 ## Busy-cell deferred delivery
 
-A valid handoff aimed at a non-`DORMANT` recipient is not accepted immediately.
+```text
+inspect valid arrival
+→ detect non-DORMANT recipient
+→ persist in bounded mailbox before acceptance
+→ retry on logical scheduler epoch
+→ release only when DORMANT and queue capacity exists
+→ accept exactly once
+→ run recipient lifecycle
+```
 
-The scheduler performs:
-
-`inspect validity -> detect busy recipient -> defer into bounded mailbox -> retry on later deterministic drain epoch -> release only when DORMANT -> accept -> recipient lifecycle`
-
-Inspection and acceptance are separate operations. Deferral happens before acceptance, so a deferred event is not added to `seenEventIds` or `seenArrivalKeys`. It creates no perception, memory, specialist, or lifecycle receipt until actual release and acceptance.
-
-Each scheduler job declares `maxMailboxSize`, `maxDeferredRetries`, and `deferredTtlEpochs`. The epoch is a logical scheduler-drain counter, not wall-clock time and not canonical world revision.
-
-Mailbox overflow, expiry, retry exhaustion, cancellation, and queue-capacity-blocked release are explicit receipt-bearing outcomes.
+A waiting handoff is not marked seen and creates no perception, specialist, lifecycle, or memory effect.
 
 ## Interruption-safe memory compaction
 
-Working-memory compaction uses a copy-on-write journal rather than destructive splice-first mutation.
-
-Before either memory array changes, EchoWorld stores:
-
-- deterministic compaction ID;
-- cell ID and generation;
-- complete before working/compressed arrays and hashes;
-- complete proposed after working/compressed arrays and hashes;
-- overflow count and source event IDs;
-- status `PREPARED`.
-
-Normal sequence:
-
-`PREPARED -> WORKING_SWAPPED -> COMPRESSED_SWAPPED -> COMMIT_RECEIPT_WRITTEN -> journal cleared`
-
-`reloadWorld()` scans pending journals in stable cell-ID order.
-
-Recognized mixed before/after states roll forward to the complete after-image. A corrupt after-image rolls back to the valid complete before-image. A corrupt before-image retains the journal, marks repair required, and places the cell in `REPAIR`.
-
-Compaction summary keys include provenance class, so CANONICAL and OBSERVED memory cannot silently merge.
-
-## Integrity-wrapped atomic persistence
-
-The durable store wraps the complete `persistWorld(world)` payload in:
-
-- generation;
-- immediate parent snapshot ID;
-- world schema;
-- canonical hash;
-- payload SHA-256;
-- deterministic snapshot ID.
-
-Candidate roles are:
-
-- primary;
-- backup;
-- temp;
-- recovery-temp.
-
-Validation requires the envelope, payload hash, snapshot ID, world reload, world schema, and canonical hash to agree.
-
-Recovery chooses the highest valid generation.
-
-Identical highest-generation copies use stable role priority:
-
-`primary -> temp -> recovery-temp -> backup`
-
-Different valid snapshots claiming the same highest generation produce `SNAPSHOT_GENERATION_CONFLICT`.
-
-No valid candidate means `NO_VALID_SNAPSHOT`. Save does not overwrite that unresolved store.
-
-### Save ordering
-
 ```text
-recover existing valid store
--> write temp
--> fsync temp
--> preserve old primary as backup
--> fsync directory
--> rename temp to primary
--> fsync directory
--> verify installed primary
+prepare complete before/after images + hashes
+→ swap working
+→ swap compressed
+→ write final receipt
+→ advance generation
+→ clear journal
 ```
 
-### Recovery promotion
+Reload recognizes tested mixed states and rolls forward. A corrupt proposed after-image rolls back to the valid before-image. A corrupt before-image enters explicit `REPAIR`.
+
+Compaction is non-canonical and preserves `CANONICAL` versus `OBSERVED` provenance.
+
+## Atomic snapshot persistence
+
+The store wraps the complete serialized world in an integrity envelope with generation, immediate parent, payload hash, canonical hash, optional checkpoint admission, and deterministic snapshot ID.
+
+Recovery inspects primary, backup, temp, and recovery-temp and selects the highest eligible valid generation. Different valid identities at the same highest generation fail closed.
+
+Save and recovery use synced temporary files, same-directory rename, directory fsync, and post-install verification on the tested Ubuntu filesystem.
+
+## Writer lease architecture
+
+Writer coordination is a separate append-only filesystem ledger:
 
 ```text
-inspect all candidates
--> select highest non-conflicting valid generation
--> write + fsync recovery-temp
--> rename recovery-temp to primary
--> fsync directory
--> verify promoted primary
+claim
+→ activation
+→ optional heartbeats
+→ durable base record
+→ leased checkpoint(s)
+→ release or expiry
 ```
 
-The implementation calls file fsync and directory fsync and uses same-directory rename on the tested Ubuntu filesystem.
+Each claim receives a monotonically increasing fencing token from an exclusive filename. A corrupt or abandoned claim burns its token but cannot activate.
 
-Nine abrupt child-process exits are tested: six save stages and three recovery-promotion stages.
+The active lease is time-bounded. Heartbeats extend it. After expiry, a new writer may acquire a strictly higher token. Old handles then fail lease assertion.
 
-## Truth and authority boundary
+The current protocol is cooperative. It does not prevent a process with raw filesystem access from bypassing the lease API.
 
-Canonical truth contains world revision, actor positions, and cell physical truth state.
+## Checkpoint barrier and admission
 
-The canonical hash intentionally excludes:
+The default barrier admits only cells in:
 
-- memory and memory-compaction journals;
-- memory-compaction receipts and repair state;
-- perception receipts;
-- activation and wake state;
-- specialist receipts and merge receipts;
-- handoff envelopes and guard receipts;
-- scheduler jobs and scheduler receipts;
-- deferred mailboxes and deferred-delivery receipts;
-- atomic snapshot role, generation bookkeeping, candidate files, and persistence receipts.
+- `DORMANT`
+- `REPAIR`
 
-Canonical-event memory uses provenance class `CANONICAL`.
+It rejects transient active states.
 
-Accepted handoff memory uses provenance class `OBSERVED` and retains causal evidence.
+A checkpoint admission binds:
 
-A persistence envelope records the canonical hash and rejects a payload whose reloaded canonical hash differs. Persistence selects among complete world snapshots; it does not create new canonical rules.
+- writer ID
+- lease ID
+- fencing token
+- durable base generation and snapshot ID
+- world revision
+- canonical hash
+- operational hash and counts
+- deterministic checkpoint ID
 
-## Handoff envelope and guard
+The operational projection covers selected coordination evidence from scheduler queues, deferred mailboxes, pending compactions, seen ledgers, and cell activation state.
 
-Each handoff carries stable event and causal IDs, sender/recipient IDs, causal depth, hop limit, causal path, source revision, and bounded parameters.
+The full payload hash still protects the complete serialized world. Operational hash is a focused checkpoint-coherence witness.
 
-The guard rejects missing IDs, duplicates, unknown cells, invalid hop budgets, excess depth, causal cycles, missing causal IDs, invalid/future source revisions, and repeated causal arrival at one recipient.
+## Leased checkpoint lifecycle
 
-Invalid signals are rejected before busy-cell deferral.
+```text
+acquire or renew current lease
+→ recover fencing-eligible durable base
+→ compare durable base with lease handle
+→ inspect quiescence barrier
+→ create checkpoint admission
+→ create snapshot v0.02
+→ reassert lease at persistence boundaries
+→ verify primary still equals admitted base
+→ install and verify next generation
+→ advance lease base
+```
 
-## Deterministic queued scheduler
+Reusing a pre-commit lease base fails with `CHECKPOINT_BASE_CHANGED`.
 
-The scheduler orders work using a stable key containing depth, causal ID, type, sender, recipient, and event ID.
+A higher token makes older leased `temp` and `recoveryTemp` candidates ineligible. Committed primary and backup generations remain eligible.
 
-Its independent bounds cover processed work, active queue size, mailbox size, deferred retries, and deferred logical TTL.
+## Persistence authority checks
 
-Scheduler completion states include `DRAINED`, `WAITING_FOR_DEFERRED_DELIVERY`, `DEFERRED_DELIVERY_EXHAUSTED`, `BUDGET_EXHAUSTED`, and `AUTHORITY_BREACH`.
+The leased wrapper asserts ownership around:
 
-Unfinished active and deferred work lives inside the serialized world and therefore participates in complete atomic snapshots.
+- recovered-base boundary
+- temp write and fsync
+- backup copy and directory fsync
+- primary rename
+- primary directory fsync
+- installed-primary verification
 
-## Recovery composition
+Immediately before primary rename it also reopens primary and verifies generation and snapshot ID against the admitted base.
 
-Atomic snapshot validation calls `reloadWorld(payload)`.
+This narrows stale-writer risk, but the assertion and rename are not one kernel-enforced compare-and-swap operation.
 
-This means one load can compose two deterministic recovery layers:
+## Snapshot validation order
 
-1. select and validate the newest complete snapshot candidate;
-2. recover any pending non-canonical memory-compaction journal inside that snapshot.
+For v0.02:
 
-The suite verifies that a snapshot containing a pending compaction reloads to the repaired memory state while preserving canonical truth.
+1. parse and validate envelope identity;
+2. validate checkpoint schema and base relation;
+3. load the unrecovered world;
+4. compare world schema and canonical hash;
+5. compare checkpoint world revision, canonical hash, and operational hash;
+6. run normal non-canonical world recovery;
+7. verify recovered canonical hash remains unchanged.
+
+This allows exact checkpoint evidence for pending compaction state while still returning repaired memory.
+
+Legacy v0.01 snapshots remain readable but contain no fencing checkpoint.
+
+## Authority map
+
+### Canonical authority
+
+- deterministic physical event rules
+- canonical world revision and state
+- canonical hash
+
+### Proposal / experiential authority only
+
+- memory and perception
+- specialists and merge receipts
+- handoff and scheduler state
+- deferred mailboxes
+- compaction journals and repair state
+
+### Persistence / coordination authority only
+
+- snapshot candidate selection
+- generations and immediate parent IDs
+- lease claims, heartbeats, releases, and fencing tokens
+- checkpoint admissions
+- atomic save/recovery receipts
+
+Coordination state may permit or reject a write. It does not define physical truth.
 
 ## Current evidence
 
-GitHub Actions run `33377190670`, job `99441212943`:
+Implementation head `6455d5dd4dc2d0609ab13ca38e096ca2fee63fc9` passed GitHub Actions run `33405590474`, job `99532258471`:
 
-- Node.js v22.23.2
-- Ubuntu 24.04
-- 67 tests
-- 67 passed
+- 85 tests
+- 85 passed
 - 0 failed
-- duration `2025.432072 ms`
+- Node.js v22.23.2
+- Ubuntu 24.04.4
+- duration `2086.800059 ms`
 
-## Persistence boundary
+## Remaining architectural boundaries
 
-The current result is process-exit-resilient on the tested Linux CI filesystem.
-
-It is not a universal power-loss guarantee.
-
-An abrupt exit after `AFTER_TEMP_WRITE` happened before temp-file fsync. Recovery succeeded because the temp file was present and valid after that process exit. Sudden loss of power or volatile hardware caches at that point is untested.
-
-Also unproven:
-
-- multi-writer coordination;
-- every filesystem and operating system;
-- network filesystem semantics;
-- cross-device rename;
-- storage-controller durability;
-- complete parent-chain verification;
-- one transaction spanning world mutation and persistence admission;
-- automatic repair when all candidates are invalid.
-
-See `docs/ATOMIC_PERSISTENCE.md` for the full protocol and exact claim boundary.
+- cooperative API, not hostile filesystem enforcement
+- supplied millisecond clock, not distributed monotonic time
+- append-only lease ledger without verified archival
+- immediate-parent validation, not complete lineage proof
+- no atomic kernel CAS between final assertion and rename
+- checkpoint admission does not freeze arbitrary caller mutation for the entire save
+- process-exit evidence is not universal power-loss evidence
+- no every-platform/filesystem proof
+- no production-scale performance claim
+- no AI in v0.01

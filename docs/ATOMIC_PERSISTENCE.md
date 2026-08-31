@@ -1,48 +1,58 @@
 # EchoWorld v0.01 Atomic Persistence
 
-EchoWorld now has an integrity-wrapped atomic snapshot store for its complete serialized world state.
+EchoWorld has an integrity-wrapped atomic snapshot store for complete serialized world state, now extended with optional fenced checkpoint admissions.
 
-The implementation lives under `src/persistence/` and remains part of `chatgpt/echoworld-lane-01`.
+The implementation remains under `src/persistence/` in `chatgpt/echoworld-lane-01`.
 
 ## Purpose
 
-The store addresses a narrower question than “perfect durable storage”:
+The base snapshot protocol asks:
 
-> After an abrupt process exit during a tested save or recovery stage, can EchoWorld inspect the surviving files, reject corrupt candidates, select the newest non-conflicting valid generation, and restore it without changing canonical truth?
+> After an abrupt process exit during a tested save or recovery stage, can EchoWorld reject corrupt candidates, select the newest non-conflicting valid generation, and restore it without changing canonical truth?
 
-The current evidence answers **yes for the tested Linux CI environment and stages**.
+The fenced extension asks:
 
-It does not establish sudden power-loss, storage-controller, every-filesystem, or multi-writer guarantees.
+> Can a cooperative current writer bind a coherent checkpoint to its lease token and durable base so stale writers and older leased transients cannot silently become the next world?
+
+The current evidence supports both questions for the tested local Ubuntu CI environment and cooperative API.
 
 ## Schemas
 
-Snapshot envelope:
+Current snapshot envelope:
+
+`axm.echoworld.atomic-snapshot/v0.02`
+
+Legacy readable envelope:
 
 `axm.echoworld.atomic-snapshot/v0.01`
 
-Save/recovery receipt:
+Current save/recovery receipt:
 
-`axm.echoworld.atomic-snapshot-receipt/v0.01`
+`axm.echoworld.atomic-snapshot-receipt/v0.02`
 
-Inspection receipt:
+Current inspection receipt:
 
-`axm.echoworld.atomic-snapshot-inspection/v0.01`
+`axm.echoworld.atomic-snapshot-inspection/v0.02`
 
-## Files
+Checkpoint admission:
+
+`axm.echoworld.checkpoint-admission/v0.01`
+
+## Candidate files
 
 For store name `world`:
 
-- `world.snapshot.json`: primary candidate
-- `world.snapshot.backup.json`: previous primary candidate
+- `world.snapshot.json`: primary
+- `world.snapshot.backup.json`: previous primary
 - `world.snapshot.tmp.json`: save candidate
 - `world.snapshot.recover.tmp.json`: recovery-promotion candidate
 - `world.snapshot.backup.tmp.json`: internal backup-write candidate
 
 All persistent candidates use UTF-8 JSON.
 
-## Integrity envelope
+## Envelope v0.02
 
-Each snapshot envelope contains:
+Every current envelope contains:
 
 ```text
 schema
@@ -53,41 +63,44 @@ canonicalHash
 payloadHash
 payloadEncoding
 payload
+checkpoint
 snapshotId
 ```
 
-`payload` is the complete `persistWorld(world)` string.
+`checkpoint` may be null for the unleased compatibility API.
 
-`payloadHash` is SHA-256 over that exact payload string.
-
-`snapshotId` is deterministic over the envelope identity fields except `snapshotId` itself.
+The deterministic snapshot ID covers the checkpoint when present, so checkpoint tampering invalidates snapshot identity.
 
 A candidate is valid only when:
 
-1. envelope JSON parses;
-2. schema matches;
-3. generation is an integer of at least 1;
-4. payload encoding and payload shape are valid;
+1. JSON parses;
+2. schema is current v0.02 or supported legacy v0.01;
+3. generation is a positive integer;
+4. payload encoding and shape are valid;
 5. payload SHA-256 matches;
 6. deterministic snapshot ID matches;
-7. `reloadWorld(payload)` succeeds;
-8. reloaded world schema matches;
-9. the reloaded world's canonical hash matches the envelope.
+7. optional checkpoint schema and ID validate;
+8. optional checkpoint base matches generation and parent;
+9. unrecovered world reload succeeds;
+10. world schema and canonical hash match;
+11. optional checkpoint world revision, canonical hash, and operational hash match the unrecovered payload;
+12. normal non-canonical recovery succeeds;
+13. recovered canonical hash remains unchanged.
 
-A candidate that merely claims a high generation receives no preference unless it passes every check.
+A claimed high generation receives no preference unless every relevant check passes.
 
 ## Generation and lineage
 
-A new save uses:
+A new generation uses:
 
 ```text
 generation = selected current generation + 1
 parentSnapshotId = selected current snapshotId
 ```
 
-The protocol currently verifies the candidate itself and records its immediate parent ID.
+A leased checkpoint additionally records the admitted base generation and snapshot ID, which must equal the snapshot parent relationship.
 
-It does not yet walk and prove the complete historical parent chain.
+The current protocol verifies the candidate and immediate parent relationship. It does not yet traverse and prove the full historical chain.
 
 ## Candidate selection
 
@@ -98,85 +111,105 @@ Recovery inspects:
 3. temp
 4. recovery-temp
 
-It considers only valid candidates.
+Base selection rule:
 
-Selection rule:
+`highest eligible valid generation wins`
 
-```text
-highest valid generation wins
-```
+Identical highest-generation candidates use stable role priority:
 
-When several highest-generation candidates have the same snapshot ID, stable role priority is:
+`primary -> temp -> recovery-temp -> backup`
 
-```text
-primary
-→ temp
-→ recovery-temp
-→ backup
-```
-
-When different valid snapshots claim the same highest generation, recovery fails closed with:
+Different valid identities at the same highest eligible generation produce:
 
 `SNAPSHOT_GENERATION_CONFLICT`
 
-It does not choose whichever file happens to be listed first.
-
-When files exist but no candidate is valid, recovery fails with:
+No valid candidate produces:
 
 `NO_VALID_SNAPSHOT`
 
-A new save refuses to overwrite such a store.
+When a fencing policy excludes all otherwise valid candidates, recovery reports `NO_ELIGIBLE_SNAPSHOT`, except for the explicit first-generation case where only older fenced transients exist. That case discards the transients and returns an empty durable base.
+
+## Fencing-aware candidate policy
+
+The writer lease supplies a candidate policy for leased acquisition and leased checkpointing.
+
+For `temp` and `recoveryTemp` only:
+
+```text
+candidate checkpoint fencingToken < current fencingToken
+→ FENCED_UNCOMMITTED_CANDIDATE
+```
+
+Primary and backup remain eligible committed generations.
+
+The policy prevents the tested old leased temp from being promoted after higher-token takeover. It does not retroactively fence legacy uncheckpointed v0.01 transient candidates because they carry no writer token.
 
 ## Save protocol
 
-Before writing a new generation, save first runs deterministic recovery on the existing store.
+Before writing a new generation, save runs deterministic recovery on the existing store.
 
-The normal save sequence is:
+Normal sequence:
 
-1. write complete envelope to temp;
-2. invoke `AFTER_TEMP_WRITE`;
-3. fsync temp file;
-4. invoke `AFTER_TEMP_FSYNC`;
-5. copy the current primary into backup-temp;
-6. fsync backup-temp;
-7. rename backup-temp to backup;
-8. invoke `AFTER_BACKUP_RENAME`;
-9. fsync the directory;
-10. invoke `AFTER_BACKUP_DIRECTORY_FSYNC`;
-11. atomically rename temp to primary;
-12. invoke `AFTER_PRIMARY_RENAME`;
-13. fsync the directory;
-14. invoke `AFTER_PRIMARY_DIRECTORY_FSYNC`;
-15. reopen and verify the installed primary;
-16. remove transient files.
+1. recover the current eligible base;
+2. optionally verify expected base generation and snapshot ID;
+3. create the envelope;
+4. run the write authority guard after base recovery;
+5. write temp;
+6. invoke `AFTER_TEMP_WRITE`;
+7. fsync temp;
+8. invoke `AFTER_TEMP_FSYNC`;
+9. run authority guard;
+10. preserve current primary through synced backup-temp and rename;
+11. fsync directory;
+12. run authority guard;
+13. re-check owner and installed primary base immediately before primary rename;
+14. atomically rename temp to primary;
+15. invoke `AFTER_PRIMARY_RENAME`;
+16. fsync directory;
+17. invoke `AFTER_PRIMARY_DIRECTORY_FSYNC`;
+18. run authority guard;
+19. reopen and verify installed primary;
+20. run final authority guard;
+21. clean transient paths.
 
-The first generation has no existing primary to preserve as backup.
+The unleased `saveAtomicWorldSnapshot()` remains available for compatibility and tests. Cooperative single-writer protection is provided by `saveLeasedAtomicWorldSnapshot()`.
 
-File mode for newly written snapshot candidates is `0600`.
+## Write authority boundaries
 
-Directory fsync is required by default. When the platform refuses it with a known unsupported error, the store fails with `DIRECTORY_FSYNC_UNSUPPORTED` unless the caller explicitly disables that requirement.
+The atomic store exposes named boundaries:
 
-## Recovery protocol
+- `AFTER_BASE_RECOVERY`
+- `BEFORE_TEMP_WRITE`
+- `AFTER_TEMP_FSYNC`
+- `BEFORE_BACKUP_COPY`
+- `AFTER_BACKUP_DIRECTORY_FSYNC`
+- `BEFORE_PRIMARY_RENAME`
+- `AFTER_PRIMARY_DIRECTORY_FSYNC`
+- `AFTER_PRIMARY_VERIFY`
 
-When the selected candidate is not already primary:
+The leased wrapper reasserts ownership at these boundaries and checks primary base identity before installation.
 
-1. write selected candidate text to recovery-temp;
+These are explicit cooperative checks. They are not a kernel-level atomic compare-and-swap between the final check and rename.
+
+## Recovery promotion
+
+When selected candidate is not primary:
+
+1. write selected candidate to recovery-temp;
 2. fsync recovery-temp;
 3. invoke `AFTER_RECOVERY_TEMP_FSYNC`;
-4. atomically rename recovery-temp to primary;
+4. rename recovery-temp to primary;
 5. invoke `AFTER_RECOVERY_PRIMARY_RENAME`;
-6. fsync the directory;
+6. fsync directory;
 7. invoke `AFTER_RECOVERY_DIRECTORY_FSYNC`;
-8. reopen and verify primary against the selected snapshot ID;
-9. clean transient files.
+8. reopen and verify primary against selected snapshot ID;
+9. clean transients.
 
-If recovery itself exits at one of these stages, a later recovery can inspect the surviving primary, backup, temp, and recovery-temp candidates again.
+Recovery remains restartable after interruption at the tested stages.
 
-## Abrupt process-exit tests
+## Abrupt process-exit evidence
 
-The tests launch child Node.js processes and call `process.exit(86)` at exact stages.
-
-Save stages:
+Base snapshot save exits:
 
 - `AFTER_TEMP_WRITE`
 - `AFTER_TEMP_FSYNC`
@@ -185,69 +218,94 @@ Save stages:
 - `AFTER_PRIMARY_RENAME`
 - `AFTER_PRIMARY_DIRECTORY_FSYNC`
 
-Recovery-promotion stages:
+Recovery-promotion exits:
 
 - `AFTER_RECOVERY_TEMP_FSYNC`
 - `AFTER_RECOVERY_PRIMARY_RENAME`
 - `AFTER_RECOVERY_DIRECTORY_FSYNC`
 
-After every tested exit, a new process performs recovery and obtains generation 2 with the expected canonical state.
+Lease record exits:
 
-### Important distinction
+- `AFTER_CLAIM_FSYNC`
+- `AFTER_ACTIVATION_FSYNC`
+- `AFTER_BASE_RECORD_FSYNC`
+- `AFTER_RELEASE_FSYNC`
 
-`AFTER_TEMP_WRITE` occurs before file fsync.
+Child processes use exit code `86`. Later processes recover the expected snapshot or acquire a higher writer token according to the tested stage.
 
-The test proves that the valid temp file remained available after the tested process exit on GitHub's Ubuntu filesystem. It does not prove that the file would survive sudden power loss at that stage.
+## Checkpoint admission interaction
 
-## Corruption and conflict tests
+A leased v0.02 snapshot binds:
 
-The suite also verifies:
+- writer identity and lease ID;
+- fencing token;
+- admitted durable base;
+- canonical hash and revision;
+- selected operational coordination state.
 
-- corrupt primary falls back to valid backup and promotes it;
-- a valid higher-generation temp beats an older valid primary;
-- an invalid high-looking temp is ignored;
-- payload tampering fails at the payload hash;
-- identical same-generation candidates select primary deterministically;
-- different valid same-generation candidates stop with conflict;
-- an existing store with no valid candidate is not overwritten;
-- atomic load triggers pending memory-compaction recovery.
+Validation first checks the checkpoint against the unrecovered payload. This matters when a snapshot intentionally contains a pending compaction journal. After that evidence is validated, normal reload recovery may complete the journal before returning the world.
 
 ## Interaction with canonical truth
 
-The envelope records the world canonical hash, and validation recomputes it after reload.
+The envelope records canonical hash and rejects disagreement after reload.
 
-Snapshot role, generation metadata, backup files, temp files, receipts, and recovery choice do not alter canonical world rules.
+Lease records, fencing tokens, checkpoint admissions, candidate roles, generation bookkeeping, and persistence receipts remain outside canonical rule authority.
 
-Loading a snapshot may deterministically repair non-canonical pending memory-compaction state through the existing `reloadWorld()` recovery path. The test confirms that this does not change the canonical hash.
+Persistence chooses and verifies complete world snapshots. It does not decide physical rules or promote memory/perception into truth.
 
-## What this proves
+## Current evidence
 
-Observed in the tested CI environment:
+GitHub Actions implementation checkpoint:
 
-- complete integrity-checked generation envelopes;
-- deterministic candidate selection;
-- fail-closed same-generation conflict handling;
-- backup fallback;
-- temp promotion;
-- file fsync and directory fsync calls;
-- atomic rename installation on the tested filesystem;
-- restartable recovery promotion;
-- recovery after nine abrupt process-exit stages;
-- preservation of expected canonical state;
-- compatibility with pending compaction recovery.
+- head `6455d5dd4dc2d0609ab13ca38e096ca2fee63fc9`
+- run `33405590474`
+- job `99532258471`
+- Node.js v22.23.2
+- Ubuntu 24.04.4
+- 85 tests passed, 0 failed
+- duration `2086.800059 ms`
 
-## What this does not prove
+See `docs/WRITER_LEASE.md` for the lease protocol and `evidence/writer-lease-fencing-latest.json` for the dedicated proof receipt.
 
-- sudden power-loss durability;
-- storage-controller cache flush guarantees;
-- behavior on every filesystem or operating system;
-- cross-device rename atomicity;
-- network filesystem semantics;
-- a single-writer lock or multi-process writer lease;
-- protection against two simultaneous valid writers creating competing generations;
-- complete parent-chain verification;
-- transactions spanning world mutation, active scheduler queue, deferred mailbox, and compaction journal;
-- automatic recovery when all candidates are invalid;
-- production-scale throughput or latency.
+## Claim boundary
 
-The strongest next persistence seam is a deterministic single-writer lease plus a checkpoint admission barrier, followed by a shared transaction/checkpoint boundary for queue, mailbox, and compaction state.
+### Process exit is not power loss
+
+`AFTER_TEMP_WRITE` occurs before temp-file fsync. Survival after tested process exit does not establish sudden-power-loss durability.
+
+### Cooperative writers
+
+The lease and fencing protocol protects writers that use the API. A process with raw filesystem access can bypass it.
+
+### Time
+
+Lease expiry uses supplied milliseconds. Cross-machine skew, clock rollback, suspended processes, and distributed consensus are not solved.
+
+### Final-check interval
+
+There is a narrow interval between final lease/base assertion and primary rename. No platform-enforced CAS currently closes that interval.
+
+### Platform
+
+The protocol is tested on GitHub Actions Ubuntu. Every filesystem, operating system, network filesystem, cross-device path, and storage controller is not covered.
+
+### Ledger and lineage
+
+Lease records are append-only without verified garbage collection. Snapshot lineage records the immediate parent but does not yet prove the complete chain.
+
+### Transaction
+
+The checkpoint hashes canonical and operational state and requires quiescent cell states, but the API does not freeze arbitrary caller mutation through the full save duration. A stronger mutation-session boundary remains future work.
+
+## Next persistence work
+
+1. safe writer-lease ledger archival and compaction;
+2. monotonic-clock and rollback-resistant lease timing;
+3. stronger compare-and-swap or platform-lock enforcement;
+4. complete parent-chain plus fencing lineage verification;
+5. explicit mutation/checkpoint session with frozen admission state;
+6. heartbeat and checkpoint-stage process-exit tests;
+7. platform/filesystem matrix;
+8. power-failure experiments on controlled hardware;
+9. dedicated lease and atomic persistence benchmarks;
+10. trusted external recovery when all local candidates are invalid.

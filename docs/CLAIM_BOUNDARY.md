@@ -4,192 +4,222 @@
 
 The current lane demonstrates a small deterministic persistent-cell harness with:
 
-- stable cell identity and canonical revision state;
-- bounded CANONICAL and OBSERVED memory with separate provenance;
-- deterministic specialist matching, stale rejection, and conflict preservation;
-- bounded deterministic handoff propagation and scheduling;
-- persistent deferred delivery for simulated busy cells;
-- copy-on-write working-memory compaction and deterministic reload recovery;
-- integrity-wrapped complete-world snapshot envelopes;
-- deterministic snapshot generations and immediate parent IDs;
-- payload SHA-256, snapshot identity, world-schema, reload, and canonical-hash validation;
-- primary, backup, temp, and recovery-temp candidate inspection;
-- highest-valid-generation selection;
-- stable priority for identical candidate copies;
-- fail-closed conflict handling when different valid snapshots claim the same highest generation;
-- temp-file fsync;
-- backup preservation;
-- same-directory atomic primary replacement on the tested Ubuntu filesystem;
-- directory fsync required by default;
-- post-install primary verification;
-- restartable recovery promotion;
-- nine abrupt child-process exit tests using exit code 86;
-- deterministic recovery after six save-stage exits;
-- deterministic recovery after three recovery-promotion exits;
-- corruption fallback from primary to backup;
-- promotion of a valid higher-generation temp;
-- rejection of invalid high-looking temp content;
-- refusal to overwrite an existing store with no valid candidate;
-- pending memory-compaction recovery after atomic snapshot load;
-- canonical hash equality with memory disabled versus enabled.
-
-GitHub Actions executed 67 tests on Node.js v22.23.2 and Ubuntu 24.04: 67 passed and 0 failed.
+- stable canonical world state and hashing;
+- bounded CANONICAL and OBSERVED memory;
+- temporary specialist proposals with deterministic authority limits;
+- bounded handoff scheduling and deferred delivery;
+- interruption-safe memory compaction;
+- process-exit-resilient atomic snapshots on the tested Ubuntu filesystem;
+- append-only writer lease records with integrity hashes;
+- monotonically increasing fencing tokens;
+- provisional claims, activation, heartbeat renewal, durable base records, and release records;
+- one active cooperative owner blocking another;
+- simultaneous cooperative claims electing one active owner in the tested race;
+- stale-owner takeover after expiry with a higher fencing token;
+- old lease handles rejected after takeover;
+- deterministic checkpoint admissions containing writer, lease, token, durable base, canonical, and operational evidence;
+- quiescence rejection for active cells;
+- leased snapshots embedding checkpoint evidence in atomic snapshot v0.02;
+- stale durable-base rejection;
+- reassertion of lease ownership at named persistence boundaries;
+- base identity verification before primary installation;
+- fencing-aware rejection of older leased temp and recovery-temp candidates;
+- detection of a tested non-cooperating durable-base change;
+- process-exit recovery after durable claim, activation, base, and release stages;
+- legacy snapshot v0.01 compatibility;
+- 85 passing GitHub Actions tests.
 
 ## Interpretation
 
-The results support a process-exit-resilient, integrity-wrapped atomic snapshot protocol on the tested Linux CI filesystem.
+The evidence supports a cooperative local single-writer protocol layered over the existing atomic snapshot store.
 
-They show that, after the tested process exits, at least one complete valid candidate remains available, the selector can identify the highest non-conflicting valid generation, and recovery can install and verify it as primary.
+Within the tested API:
 
-They also show that recovery does not trust filenames or claimed generations alone. Content integrity and canonical consistency are checked first.
+- one current lease owns checkpoint admission;
+- every replacement receives a strictly higher fencing token;
+- a stale handle cannot perform a leased checkpoint after takeover;
+- a checkpoint is bound to the durable generation it extends;
+- selected operational coordination state is included in the admission witness;
+- an older leased transient cannot later outrank the new writer's durable base merely because its generation is higher.
 
-The tests do not establish universal power-loss safety.
+The evidence does not establish hostile-process exclusion, distributed consensus, universal clock correctness, or a kernel-enforced compare-and-swap transaction.
 
-## Exact abrupt-exit boundary
+## Cooperative-writer boundary
 
-Save exits:
+The protocol applies to writers that use:
 
-- `AFTER_TEMP_WRITE`
-- `AFTER_TEMP_FSYNC`
-- `AFTER_BACKUP_RENAME`
-- `AFTER_BACKUP_DIRECTORY_FSYNC`
-- `AFTER_PRIMARY_RENAME`
-- `AFTER_PRIMARY_DIRECTORY_FSYNC`
+- `acquireWriterLease()`
+- `renewWriterLease()`
+- `assertWriterLease()`
+- `saveLeasedAtomicWorldSnapshot()`
+- `releaseWriterLease()`
 
-Recovery-promotion exits:
+A process with direct write access to the snapshot directory can bypass these calls.
 
-- `AFTER_RECOVERY_TEMP_FSYNC`
-- `AFTER_RECOVERY_PRIMARY_RENAME`
-- `AFTER_RECOVERY_DIRECTORY_FSYNC`
+The leased checkpoint detects the tested case where a non-cooperating writer changes the durable primary before admission/install. It cannot guarantee detection if an external process edits files after the final base assertion or tampers with the lease ledger itself.
 
-Each child process called `process.exit(86)`.
+Filesystem permissions, process isolation, and hostile-writer defense remain separate layers.
 
-A later process recovered generation 2 with the expected actor state, world revision, and canonical hash.
+## Fencing boundary
 
-### Critical distinction
+Fencing tokens are monotonic append-only integers derived from exclusive claim filenames.
 
-`AFTER_TEMP_WRITE` occurs before file fsync.
+The implementation proves:
 
-Success at this test point means the file survived the tested abrupt process exit on GitHub's Ubuntu filesystem. It does not demonstrate survival under sudden power loss, kernel failure, storage-controller cache loss, or hardware failure.
+- tokens are not reused;
+- corrupt claims cannot activate;
+- replacement writers receive higher tokens;
+- old lease handles fail after a higher active token appears;
+- lower-token leased temp/recovery-temp candidates are ineligible under the new writer's candidate policy.
 
-The later fsync stages provide stronger tested ordering, but the suite still cannot simulate every layer between the operating system and persistent media.
+The policy deliberately does not reject committed primary/backup generations solely because their checkpoint token is old. They are durable history and may be the correct base.
 
-## Selection boundary
+Legacy uncheckpointed transient snapshots contain no fencing token and are not retroactively classified as stale leased candidates.
 
-Candidate selection is:
+## Lease-time boundary
 
-`highest valid generation wins`
+Lease expiry uses caller-supplied finite milliseconds.
 
-Validation includes:
+Tests inject exact values, but the design does not yet prove safety under:
 
-- JSON parse;
-- envelope schema;
-- generation;
-- payload encoding;
-- payload hash;
-- deterministic snapshot ID;
-- world reload;
-- world schema;
-- canonical hash.
+- clock rollback
+- NTP correction
+- cross-machine clock skew
+- process suspension
+- VM pause/resume
+- restart without monotonic-clock continuity
+- distributed hosts lacking a shared time authority
 
-Different valid snapshots with the same highest generation produce `SNAPSHOT_GENERATION_CONFLICT`.
+The lease is therefore a local cooperative timing protocol, not a distributed lease theorem.
 
-Identical copies use stable role priority:
+## Election boundary
 
-`primary -> temp -> recovery-temp -> backup`
+Simultaneous cooperative acquisition is tested with two Promise-based contenders on one local filesystem.
 
-The store does not yet validate the complete historical chain of parent snapshot IDs. It records and links the immediate parent only.
+Exclusive claim creation and deterministic contender election produced one active writer.
 
-## Filesystem boundary
+The current result does not establish fairness under arbitrary process scheduling, large contender counts, network filesystems, or hostile claim-file manipulation.
 
-Observed on GitHub Actions Ubuntu 24.04:
+## Checkpoint boundary
 
-- temp and recovery-temp file fsync;
-- backup and primary same-directory rename;
-- directory fsync;
-- post-rename verification;
-- restart after abrupt process exit.
+The default barrier rejects cells outside `DORMANT` or `REPAIR`.
 
-Not established:
+The operational hash includes selected deterministic projections of:
 
-- Windows behavior;
-- macOS behavior;
-- every Linux filesystem;
-- network or distributed filesystems;
-- cross-device moves;
-- storage-controller durability;
-- sudden power loss;
-- torn writes below the filesystem;
-- directory fsync semantics on platforms that reject it.
+- scheduler queues
+- deferred mailboxes
+- pending compaction journals
+- seen event/arrival ledgers
+- cell wake and activation evidence
 
-Directory fsync is required by default. An unsupported platform fails closed unless the caller explicitly disables that requirement.
+The complete payload is separately hashed. The operational hash is not a full duplicate hash of every world byte.
 
-## Concurrency boundary
+The checkpoint API verifies admission state during envelope creation and validation. It does not freeze arbitrary caller mutation throughout the complete asynchronous save. A stronger mutation-session or immutable snapshot handoff remains future work.
 
-There is no single-writer lock, lease, fencing token, or compare-and-swap admission gate yet.
+## Persistence-boundary checks
 
-Two writers operating simultaneously could race before either sees the other's generation.
+Lease ownership is reasserted at named save boundaries, and primary base identity is checked immediately before rename.
 
-The same-generation conflict detector protects recovery from silently choosing between conflicting complete candidates. It does not prevent competing writers from creating that conflict.
+There remains an interval between the final assertion and the filesystem rename. The implementation does not provide a kernel-level atomic condition such as “rename only if this lease token and primary identity are still current.”
 
-## Transaction boundary
+A stronger compare-and-swap, platform lock, or directory-owner primitive remains unproven.
 
-The complete serialized world includes scheduler queues, deferred mailboxes, memory journals, receipts, and canonical state.
+## Lease-ledger boundary
 
-However, the current API does not yet bind:
+Lease records are append-only:
 
-`world mutation -> checkpoint admission -> durable generation commit`
+- claims
+- activations
+- heartbeats
+- base records
+- releases
 
-into one exclusive transaction.
+No verified garbage collection, compaction, archival, bounded-retention, or full audit-chain protocol exists yet.
 
-Callers remain responsible for deciding when a world snapshot is coherent enough to save.
+A long-running store will accumulate records.
 
-## Composition with memory recovery
+## Process-exit boundary
 
-Atomic snapshot validation calls `reloadWorld(payload)`.
+New process-exit tests cover:
 
-A valid snapshot can therefore contain a pending memory-compaction journal. Loading deterministically completes or repairs that non-canonical journal using the existing rules.
+- `AFTER_CLAIM_FSYNC`
+- `AFTER_ACTIVATION_FSYNC`
+- `AFTER_BASE_RECORD_FSYNC`
+- `AFTER_RELEASE_FSYNC`
 
-The test shows that composition preserves canonical truth.
+Replacement acquisition succeeds after the tested expiry/release conditions.
 
-## Benchmark boundary
+These tests use `process.exit(86)` on GitHub Actions Ubuntu. They do not establish sudden power-loss or hardware-cache durability.
 
-The existing scheduler/lifecycle benchmark does not measure atomic persistence, fsync latency, process-exit recovery, or compaction recovery.
+The previous atomic snapshot process-exit boundary remains unchanged.
 
-The current persistence evidence is correctness and recovery evidence, not a throughput or latency claim.
+## Snapshot lineage boundary
+
+A snapshot records its immediate parent ID, and a leased checkpoint records the base it admitted.
+
+The system does not yet traverse the complete parent graph, verify every historical fencing transition, retain an unbounded lineage, or detect deletion of older valid generations beyond the candidates currently stored.
+
+## Authority boundary
+
+Writer coordination may reject a checkpoint. It may not:
+
+- change canonical physics;
+- promote memory or perception into truth;
+- resolve specialist proposals as physical state;
+- rewrite causal history;
+- grant itself new world authority.
+
+Lease records, fencing tokens, checkpoint IDs, and operational hashes are excluded from canonical physical truth.
+
+## Current evidence
+
+GitHub Actions implementation checkpoint:
+
+- code head `6455d5dd4dc2d0609ab13ca38e096ca2fee63fc9`
+- run `33405590474`
+- job `99532258471`
+- merge ref `bc2ac474b60bd91e3574e5e597c44d1287c5113b`
+- Node.js v22.23.2
+- Ubuntu 24.04.4
+- 85 tests
+- 85 passed
+- 0 failed
+- duration `2086.800059 ms`
 
 ## Next proof work
 
-- deterministic single-writer lease or lock with stale-owner recovery;
-- fencing token or compare-and-swap generation admission;
-- checkpoint barrier spanning mutation, scheduler queue, deferred mailbox, and compaction journal;
-- process-exit tests during lock acquisition and lock release;
-- parent-chain verification and bounded lineage retention;
-- platform matrix for Linux filesystems, Windows, and macOS;
-- dedicated atomic persistence and recovery benchmarks;
-- trusted external recovery when every local candidate is invalid;
-- stronger process-signal and fault-injection tests;
-- actual power-failure testing on controlled hardware where practical.
+- append-only lease-ledger checkpointing, archival, and bounded retention;
+- monotonic-clock source and rollback-resistant expiry evidence;
+- process-exit tests during heartbeat write and leased snapshot authority boundaries;
+- stronger platform lock or persisted compare-and-swap beneath the cooperative protocol;
+- immutable mutation session / checkpoint freeze semantics;
+- complete parent-chain and fencing-transition verification;
+- high-contention and fairness tests;
+- operating-system and filesystem matrix;
+- controlled sudden-power-loss experiments;
+- external recovery when every local snapshot candidate is invalid;
+- dedicated lease/checkpoint performance and storage-growth benchmarks.
 
 ## Not proven
 
 Do not claim that EchoWorld:
 
+- excludes hostile raw filesystem writers;
+- implements distributed consensus;
+- has clock-skew-safe distributed leases;
+- provides kernel-enforced compare-and-swap installation;
+- freezes all caller mutation during save;
+- bounds lease-ledger storage growth;
+- verifies complete snapshot/fencing lineage;
 - is universally power-loss-safe;
-- guarantees storage-controller durability;
 - is portable across every filesystem;
-- prevents simultaneous writers;
-- verifies its complete snapshot lineage;
-- provides a fully atomic world-mutation transaction;
-- is cheaper than conventional engines;
-- scales to massive persistent worlds;
+- is production-scale or massive-world proven;
+- provides realistic physical propagation;
 - provides production multiplayer determinism;
-- models realistic sound or fire propagation;
-- handles genuine simultaneous cell execution;
-- guarantees scheduler fairness;
+- guarantees scheduler fairness or genuine parallel cell execution;
+- contains independent parallel specialist workers;
 - creates compelling emergent stories;
-- contains independent parallel workers;
 - contains AI;
 - makes AI safe by itself.
 
-Specialists remain proposal-only. Perception, compaction, deferred delivery, and persistence bookkeeping remain outside canonical rule authority. AI is not integrated in v0.01.
+No AI is integrated in v0.01.

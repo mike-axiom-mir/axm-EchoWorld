@@ -2,11 +2,11 @@
 
 EchoWorld is an experimental deterministic persistent-cell world harness.
 
-**v0.01 question:** can small persistent world cells keep bounded memory and spawn only relevant temporary specialist work while canonical physical truth remains deterministic and unchanged by the experiential layer?
+**v0.01 question:** can small persistent world cells retain bounded experience and spawn only relevant temporary specialist work while canonical physical truth remains deterministic, replayable, and protected from experiential authority?
 
 ## Current lane
 
-Implementation work is isolated to:
+Implementation work remains isolated to:
 
 `chatgpt/echoworld-lane-01`
 
@@ -14,90 +14,83 @@ See `AGENTS.md` for the one-chat/one-lane rule.
 
 ## Implemented proof surface
 
-- 16x16 default deterministic cell world
-- stable cell IDs
-- actors A and B
-- a bridge structure
-- canonical revision + SHA-256 truth hash
-- deterministic MOVE / DAMAGE_STRUCTURE / FIRE rules
-- truth-before-memory canonical event ordering
-- bounded working, episodic, compressed, and lineage memory
-- explicit `CANONICAL` versus `OBSERVED` memory provenance
-- copy-on-write memory compaction with persisted before/after images and recovery
-- explicit `REPAIR` state when a trusted memory before-image is corrupt
-- deterministic specialist matching, stale rejection, and conflict preservation
-- bounded handoff guards, deterministic scheduling, and explicit resource budgets
-- accepted SOUND handoff recipient lifecycle: wake, specialists, perception, optional memory, relay, sleep
-- bounded persistent deferred delivery for busy recipient cells
-- exact-once deferred release with logical TTL, retry, deduplication, and receipts
-- integrity-wrapped atomic snapshot persistence
-- deterministic snapshot generations linked by `parentSnapshotId`
-- primary, backup, temp, and recovery-temp candidate inspection
-- highest-valid-generation recovery with fail-closed same-generation conflict detection
-- temp-file fsync, backup preservation, atomic primary rename, directory fsync, and post-install verification
-- abrupt child-process exit recovery at six save stages and three recovery-promotion stages
-- automatic pending memory-compaction recovery after atomic snapshot load
-- memory-enabled versus memory-disabled canonical equivalence
-- local scheduler/lifecycle microbenchmark
+- deterministic 16x16 default world with stable cell IDs
+- canonical MOVE / DAMAGE_STRUCTURE / FIRE rules and SHA-256 truth hash
+- truth-before-memory ordering
+- bounded `CANONICAL` and `OBSERVED` memory with provenance-aware compaction
+- deterministic temporary specialist proposals, stale rejection, and conflict preservation
+- bounded handoff guards, queued scheduling, resource budgets, and replay evidence
+- accepted SOUND handoff lifecycle: wake, specialists, perception, optional memory, relay, sleep
+- persistent deferred delivery for simulated busy cells
+- interruption-safe copy-on-write memory compaction and explicit `REPAIR`
+- integrity-wrapped atomic complete-world snapshots
+- primary / backup / temp / recovery-temp candidate inspection
+- process-exit recovery across save and recovery-promotion stages
+- append-only single-writer lease records
+- monotonic fencing tokens
+- provisional claims, activation, heartbeat renewal, base records, and durable release records
+- stale-owner takeover after lease expiry
+- checkpoint admission bound to writer ID, lease ID, fencing token, durable base, canonical hash, and operational hash
+- operational checkpoint evidence for scheduler queues, deferred mailboxes, pending compactions, seen ledgers, and cell activation state
+- legacy atomic snapshot v0.01 validation plus fenced snapshot v0.02
+- fencing-aware rejection of older leased temp/recovery-temp candidates
+- current-owner checks at persistence authority boundaries
+- stale-base rejection before primary installation
+- crash-tested lease acquisition and release recovery
 
-## Authority boundary
+## Core authority boundary
 
 Canonical physical truth contains world revision, actor positions, and cell physical state.
 
-Memory, compaction journals, perception, wake state, specialists, handoff guards, scheduler jobs, deferred mailboxes, snapshot candidates, and persistence receipts do not gain physical truth authority merely by existing.
+Memory, perception, wake state, specialists, handoff guards, scheduler jobs, deferred mailboxes, compaction journals, lease records, fencing tokens, checkpoint receipts, candidate filenames, and persistence receipts do not become physical truth authority merely by existing.
 
-A failed canonical transition creates no memory about an event that never committed.
+A failed canonical transition creates no canonical memory. An accepted handoff may create only an `OBSERVED` memory. Specialist finish order cannot grant mutation authority.
 
-A handoff can create only an **OBSERVED** local memory after deterministic acceptance and recipient processing. It cannot promote itself into canonical truth.
+A snapshot is accepted only when its payload integrity, deterministic identity, world schema, canonical hash, and optional checkpoint admission all validate.
 
-Conflicting specialist proposals cannot gain authority through worker finish order.
+## Cooperative single-writer protocol
 
-Snapshot recovery validates payload integrity, world reloadability, world schema, and canonical hash. It chooses the highest valid generation. If two different valid snapshots claim the same highest generation, recovery stops with `SNAPSHOT_GENERATION_CONFLICT` instead of guessing.
+A writer first acquires an append-only claim with a monotonic fencing token. The winning claim activates a time-bounded lease and records the durable snapshot base it observed.
 
-## Atomic snapshot protocol
+A leased checkpoint then follows:
 
-The store uses these files:
+```text
+acquire / renew lease
+→ verify current owner and expected durable base
+→ inspect checkpoint barrier
+→ create deterministic checkpoint admission
+→ write fenced temp snapshot
+→ re-check lease at write boundaries
+→ verify primary still matches admitted base
+→ atomically install and verify next generation
+```
 
-- `world.snapshot.json` for the primary
-- `world.snapshot.backup.json` for the previous primary
-- `world.snapshot.tmp.json` for a candidate write
-- `world.snapshot.recover.tmp.json` for recovery promotion
+Checkpoint admissions include:
 
-Each envelope records:
-
-- schema
-- generation
-- parent snapshot ID
-- world schema
+- `writerId`
+- `leaseId`
+- `fencingToken`
+- admitted base generation and snapshot ID
+- world revision
 - canonical hash
-- payload hash
-- UTF-8 JSON payload
-- deterministic snapshot ID
+- operational hash and counts
+- deterministic checkpoint ID
 
-The tested save path is:
+A higher fencing token makes an older **leased** temp or recovery-temp ineligible for recovery promotion. A stale lease cannot use the leased checkpoint API after takeover.
 
-```text
-validate/recover existing store
-→ write temp
-→ fsync temp
-→ preserve previous primary as backup
-→ fsync directory
-→ atomically rename temp to primary
-→ fsync directory
-→ verify installed primary
-```
+## Checkpoint barrier
 
-The tested recovery path is:
+By default, a checkpoint is admitted only when every cell is in `DORMANT` or explicit `REPAIR` state.
 
-```text
-inspect primary + backup + temp + recovery-temp
-→ validate every candidate
-→ choose highest non-conflicting valid generation
-→ copy selected candidate to synced recovery-temp
-→ atomically rename recovery-temp to primary
-→ fsync directory
-→ verify promoted primary
-```
+The operational hash covers selected deterministic coordination projections for:
+
+- active scheduler queues
+- deferred mailboxes
+- pending memory-compaction journals
+- seen handoff/event ledgers
+- cell wake and activation evidence
+
+The complete world payload remains protected separately by its payload SHA-256. The operational hash is a coordination witness, not a replacement for the full payload hash.
 
 ## Run
 
@@ -110,55 +103,53 @@ npm run benchmark
 
 ## Current evidence
 
-GitHub Actions independently executed the complete implementation suite on Node.js v22.23.2 and Ubuntu 24.04:
+GitHub Actions independently executed the implementation head on Node.js v22.23.2 and Ubuntu 24.04:
 
-- 67 tests
-- 67 passed
-- 0 failed
-- 0 cancelled
-- 0 skipped
-- implementation head `149b000183d23639bfb7d8926d942f92b095a310`
-- run `33377190670`
-- job `99441212943`
-- merge ref `e1a61f0b3b8ccf965fe3015c0ec07d20d8848366`
-- test duration `2025.432072 ms`
+- **85 tests**
+- **85 passed**
+- **0 failed**
+- **0 cancelled**
+- **0 skipped**
+- implementation head `6455d5dd4dc2d0609ab13ca38e096ca2fee63fc9`
+- run `33405590474`
+- job `99532258471`
+- merge ref `bc2ac474b60bd91e3574e5e597c44d1287c5113b`
+- test duration `2086.800059 ms`
 - conclusion `success`
 
-The atomic persistence tests include nine abrupt child-process exits using exit code `86`:
-
-- six save stages from temp write through primary directory fsync
-- three recovery-promotion stages from recovery-temp fsync through recovery directory fsync
-
-They also verify generation chaining, backup fallback, valid-temp promotion, invalid-temp rejection, payload tamper detection, deterministic identical-candidate priority, same-generation conflict refusal, refusal to overwrite a fully invalid store, and integration with pending memory-compaction recovery.
+The 18 new writer/checkpoint tests verify active-owner exclusion, simultaneous cooperative acquisition, monotonic tokens, renewal, stale takeover, durable release, base advancement, stale-base rejection, checkpoint quiescence, operational hashing, checkpoint tamper detection, fencing of older leased temps, mid-save lease expiry, non-cooperating base-change detection, and process-exit recovery at lease claim/activation/base/release stages.
 
 See:
 
+- `docs/WRITER_LEASE.md`
 - `docs/ATOMIC_PERSISTENCE.md`
+- `evidence/writer-lease-fencing-latest.json`
 - `evidence/test-receipt-latest.json`
 - `evidence/atomic-snapshot-recovery-latest.json`
 - `evidence/memory-compaction-recovery-latest.json`
-- `evidence/scheduler-benchmark-latest.json`
 
 ## Honest boundary
 
-This is a process-exit-resilient, integrity-wrapped atomic snapshot protocol on the tested Linux CI filesystem.
+This is a **cooperative local-filesystem writer-fencing proof** on the tested Ubuntu CI environment.
 
-It is **not** proof of sudden power-loss durability. In particular, recovery after `AFTER_TEMP_WRITE` shows that a valid temp file survived the tested process exit. That stage had not yet completed file fsync and must not be described as power-loss-safe.
+It does not prove that a hostile or buggy process bypassing the lease API cannot edit snapshot files directly. A durable-base check detects tested non-cooperating base changes before leased primary installation, but it is not an operating-system security boundary.
 
-Still unproven:
+Lease expiry currently depends on supplied millisecond time. Tests use explicit deterministic values, but cross-machine clock skew, clock rollback, suspended processes, and distributed lease semantics remain unproven.
 
-- storage-controller or hardware cache durability
-- behavior across every filesystem and operating system
-- cross-device rename behavior
-- multi-writer locking or writer-lease ownership
-- a fully verified parent-chain lineage beyond the immediate parent ID
-- one atomic transaction spanning scheduler queue, deferred mailbox, and compaction journal
-- automatic reconstruction when every candidate is corrupt
-- production-scale performance
-- massive sleeping-world scaling
-- physical attenuation and material-aware propagation
-- genuine simultaneous cell execution
-- scheduler fairness
+Append-only claim, heartbeat, base, and release records currently have no garbage-collection or archival protocol.
+
+Also unproven:
+
+- sudden power-loss and storage-controller durability
+- every filesystem and operating system
+- network filesystem or cross-device rename semantics
+- hostile multi-process enforcement
+- fully atomic in-memory mutation plus durable checkpoint commit
+- complete parent-chain verification
+- external recovery when all local candidates are corrupt
+- production-scale performance and massive-world scaling
+- realistic physical propagation
+- genuine concurrent cell execution and scheduler fairness
 - multiplayer/network determinism
 - independent parallel specialist workers
 - emergent-story quality

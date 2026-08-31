@@ -2,35 +2,49 @@
 
 Branch: `chatgpt/echoworld-lane-01`
 
-Status: process-exit-resilient integrity-wrapped atomic snapshot persistence implemented and verified on top of compaction recovery, recipient lifecycle, and deferred delivery.
+PR: `#2`
 
-Current implementation checkpoint:
+Status: cooperative single-writer lease, monotonic fencing, and checkpoint admission implemented on top of atomic snapshot recovery.
 
-- implementation head `149b000183d23639bfb7d8926d942f92b095a310`;
-- GitHub Actions run `33377190670`;
-- job `99441212943`;
-- merge ref `e1a61f0b3b8ccf965fe3015c0ec07d20d8848366`;
-- Node.js v22.23.2 on Ubuntu 24.04;
-- 67 tests passed, 0 failed;
-- total test duration `2025.432072 ms`;
-- snapshot envelopes verify payload hash, deterministic identity, world reload, world schema, and canonical hash;
-- generation 2 links to generation 1 through `parentSnapshotId`;
-- recovery inspects primary, backup, temp, and recovery-temp;
-- highest valid generation wins;
-- different valid snapshots claiming the same highest generation stop with conflict;
-- previous primary is retained as backup;
-- save uses temp-file fsync, same-directory rename, directory fsync, and post-install verification;
-- recovery promotion uses a synced recovery temp, rename, directory fsync, and verification;
-- six abrupt save-process exit stages recover the expected generation 2 state;
-- three abrupt recovery-promotion exits remain restartable and recover generation 2;
-- corrupt primary falls back to valid backup;
-- valid higher temp is promoted;
-- invalid high-looking temp is rejected;
-- all-invalid stores are not silently overwritten;
-- atomic load also recovers a persisted pending memory-compaction journal.
+## Current implementation checkpoint
 
-Claim boundary:
+- code head `6455d5dd4dc2d0609ab13ca38e096ca2fee63fc9`
+- GitHub Actions run `33405590474`
+- job `99532258471`
+- merge ref `bc2ac474b60bd91e3574e5e597c44d1287c5113b`
+- Node.js v22.23.2
+- Ubuntu 24.04.4
+- 85 tests passed
+- 0 failed
+- duration `2086.800059 ms`
 
-This is process-exit resilience on the tested Linux CI filesystem. It is not universal sudden power-loss, storage-controller, every-filesystem, or multi-writer proof.
+## Newly verified in this checkpoint
 
-This chat remains confined to this single lane. PR #2 remains the coherent review surface; no second implementation branch was created and nothing was silently merged.
+- one active cooperative writer excludes a second
+- simultaneous cooperative claims elect one owner
+- fencing tokens increase monotonically
+- corrupt burned claims cannot activate
+- release permits immediate higher-token acquisition
+- heartbeat renewal extends ownership
+- stale takeover fences the old lease handle
+- leased checkpoint embeds writer, token, base, canonical, and operational evidence
+- successful checkpoint advances the lease base
+- stale base handles are rejected
+- stale owner cannot checkpoint after replacement
+- default checkpoint barrier rejects active cells
+- operational hash covers selected queue, mailbox, pending-compaction, seen-ledger, and activation evidence
+- checkpoint tampering invalidates deterministic snapshot identity
+- higher token fences older leased transient candidates
+- lease expiry during save blocks primary installation at the tested boundary
+- non-cooperating durable-base change is detected
+- process-exit recovery succeeds after claim, activation, base-record, and release fsync stages
+
+## Source-honest boundary
+
+This is a cooperative local-filesystem fencing protocol.
+
+It is not hostile-writer enforcement, distributed consensus, clock-skew-safe multi-host leasing, universal power-loss safety, a kernel-enforced compare-and-swap rename, or a complete mutation-freeze transaction.
+
+Lease records are currently append-only without verified archival.
+
+This chat remains confined to this single lane. PR #2 remains open and unmerged. No second implementation branch was created.

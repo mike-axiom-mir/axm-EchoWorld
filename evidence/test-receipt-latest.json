@@ -1,171 +1,121 @@
 {
-  "schema": "axm.echoworld.test-receipt/v0.05",
+  "schema": "axm.echoworld.test-receipt/v0.06",
   "lane": "chatgpt/echoworld-lane-01",
   "date": "2026-08-31",
   "environment": {
     "runtime": "Node.js v22.23.2",
-    "platform": "GitHub Actions Ubuntu 24.04",
+    "platform": "GitHub Actions Ubuntu 24.04.4",
     "command": "npm test"
   },
   "result": {
-    "tests": 67,
-    "passed": 67,
+    "tests": 85,
+    "passed": 85,
     "failed": 0,
     "cancelled": 0,
     "skipped": 0,
     "todo": 0,
-    "durationMs": 2025.432072
+    "durationMs": 2086.800059
   },
-  "verifiedTests": [
-    "abrupt process exit at AFTER_TEMP_WRITE leaves a deterministically recoverable latest snapshot",
-    "abrupt process exit at AFTER_TEMP_FSYNC leaves a deterministically recoverable latest snapshot",
-    "abrupt process exit at AFTER_BACKUP_RENAME leaves a deterministically recoverable latest snapshot",
-    "abrupt process exit at AFTER_BACKUP_DIRECTORY_FSYNC leaves a deterministically recoverable latest snapshot",
-    "abrupt process exit at AFTER_PRIMARY_RENAME leaves a deterministically recoverable latest snapshot",
-    "abrupt process exit at AFTER_PRIMARY_DIRECTORY_FSYNC leaves a deterministically recoverable latest snapshot",
-    "abrupt process exit at AFTER_RECOVERY_TEMP_FSYNC leaves recovery promotion restartable",
-    "abrupt process exit at AFTER_RECOVERY_PRIMARY_RENAME leaves recovery promotion restartable",
-    "abrupt process exit at AFTER_RECOVERY_DIRECTORY_FSYNC leaves recovery promotion restartable",
-    "atomic snapshot loading also completes a persisted pending memory-compaction journal",
-    "atomic snapshots form a verified generation chain and retain one backup",
-    "corrupt primary deterministically falls back to the valid backup and promotes it",
-    "a valid higher-generation temp snapshot wins deterministic recovery and is promoted",
-    "an invalid higher-looking temp is ignored and removed while the valid primary remains authoritative",
-    "same-generation valid snapshots with different identities fail closed",
-    "save refuses to overwrite an existing store when no candidate is valid",
-    "payload tampering is rejected before world reload",
-    "identical same-generation duplicates resolve to primary by stable role priority",
-    "direct recipient lifecycle carries its own canonical hash witness",
-    "committed handoff wakes recipient, runs SOUND specialists, records observed memory, and sleeps",
-    "memory-disabled arrival still wakes, processes, and sleeps without retaining memory",
-    "already-seen handoff cannot trigger a second lifecycle or memory write",
-    "different causal signals can wake one cell repeatedly while memory remains bounded",
-    "future-revision signal is rejected before recipient lifecycle begins",
-    "arrival specialist finish order cannot alter lifecycle meaning or canonical truth",
-    "perception and lifecycle receipts survive persistence without becoming canonical truth",
-    "busy recipient defers before acceptance, perception, or memory",
-    "deferred delivery releases exactly once after the cell becomes dormant",
-    "a second schedule cannot queue an event already held in a deferred mailbox",
-    "deferred delivery expires deterministically after its logical TTL",
-    "deferred retry limit fails closed without false perception",
-    "mailbox capacity overflow is explicit and cannot masquerade as successful delivery",
-    "deferred mailbox and retry policy survive persistence and resume",
-    "invalid future-revision arrival is rejected instead of deferred even when recipient is busy",
-    "mailbox release order is deterministic regardless of initial input order",
-    "duplicate handoff is rejected after first acceptance",
-    "handoff cycle is rejected using causal path",
-    "handoff beyond hop limit is rejected",
-    "accepted handoff propagates only to terminal hop and never mutates truth directly",
-    "queued handoff scheduling is deterministic across every initial four-way order",
-    "scheduler drains a bounded signal without changing canonical truth",
-    "scheduler fails closed with an explicit receipt when work budget is exhausted",
-    "queue-capacity overflow is explicit and can never report a clean drain",
-    "same causal signal cannot be accepted twice at one recipient cell",
-    "processEvent can explicitly drain its emitted handoff queue",
-    "memory mode still cannot change canonical truth when scheduler is enabled",
-    "budget-exhausted queue survives persistence and resumes deterministically",
-    "copy-on-write compaction preserves semantic count and declared budgets",
-    "reload recovers compaction interrupted at AFTER_PREPARE",
-    "reload recovers compaction interrupted at AFTER_WORKING_SWAP",
-    "reload recovers compaction interrupted at AFTER_COMPRESSED_SWAP",
-    "reload recovers compaction interrupted at AFTER_COMMIT_RECEIPT",
-    "recovery is idempotent after interrupted compaction has been repaired",
-    "corrupted after-image rolls back to the complete before-image without fake memory",
-    "corrupted before-image fails closed in explicit REPAIR state",
-    "compaction never merges CANONICAL and OBSERVED provenance classes",
-    "bounded memory never exceeds declared budgets under repeated relevant traversal",
-    "specialist matcher selects only event-relevant contracts",
-    "handoffs are bounded and do not directly mutate neighbors",
-    "stale specialist proposal is rejected against current canonical revision",
-    "conflicting specialist proposals are order-independent and cannot mutate canonical truth",
-    "memory-enabled and memory-disabled modes produce the same canonical truth hash",
-    "failed truth transition creates no memory and does not advance revision",
-    "specialist finish order cannot change canonical truth",
-    "persistence roundtrip preserves canonical truth",
-    "invalid negative damage fails without truth or memory mutation",
-    "invalid snapshot is rejected instead of silently rehydrated"
+  "previousCheckpoint": {
+    "schema": "axm.echoworld.test-receipt/v0.05",
+    "tests": 67,
+    "passed": 67,
+    "scope": [
+      "canonical truth equivalence and failed-transition boundaries",
+      "bounded CANONICAL and OBSERVED memory",
+      "specialist matching and deterministic conflict preservation",
+      "handoff guards and deterministic queued scheduling",
+      "recipient SOUND lifecycle",
+      "persistent deferred delivery",
+      "interruption-safe memory compaction",
+      "integrity-wrapped atomic snapshot save and recovery",
+      "nine atomic snapshot process-exit stages"
+    ]
+  },
+  "newVerifiedTests": [
+    "one active writer lease blocks a second cooperative writer",
+    "simultaneous cooperative claims elect exactly one active writer",
+    "release permits immediate acquisition with a strictly higher fencing token",
+    "heartbeat renewal extends ownership and later stale takeover fences the old writer",
+    "an invalid burned claim cannot become active and the next token remains monotonic",
+    "leased checkpoint embeds fencing evidence and advances the lease base",
+    "a stale checkpoint base is rejected even while the same lease remains current",
+    "a stale owner cannot checkpoint after a higher fencing token takes over",
+    "checkpoint barrier rejects an unquiesced receiving cell",
+    "checkpoint operational hash covers pending queues, mailboxes, and compaction journals",
+    "checkpoint tampering invalidates the deterministic snapshot identity",
+    "new fencing token discards an older leased temp that never reached primary commit",
+    "lease expiry during save prevents primary installation and the next owner fences the temp",
+    "leased checkpoint refuses a durable base changed by a non-cooperating writer",
+    "stale-owner recovery succeeds after process exit at AFTER_CLAIM_FSYNC",
+    "stale-owner recovery succeeds after process exit at AFTER_ACTIVATION_FSYNC",
+    "stale-owner recovery succeeds after process exit at AFTER_BASE_RECORD_FSYNC",
+    "process exit after durable release permits immediate replacement"
   ],
+  "writerLease": {
+    "evidencePath": "evidence/writer-lease-fencing-latest.json",
+    "recordSchemas": {
+      "claim": "axm.echoworld.writer-lease-claim/v0.01",
+      "activation": "axm.echoworld.writer-lease-activation/v0.01",
+      "heartbeat": "axm.echoworld.writer-lease-heartbeat/v0.01",
+      "base": "axm.echoworld.writer-lease-base/v0.01",
+      "release": "axm.echoworld.writer-lease-release/v0.01"
+    },
+    "checkpointSchema": "axm.echoworld.checkpoint-admission/v0.01",
+    "snapshotSchema": "axm.echoworld.atomic-snapshot/v0.02",
+    "legacySnapshotSchema": "axm.echoworld.atomic-snapshot/v0.01",
+    "verified": [
+      "monotonic append-only fencing tokens",
+      "one current cooperative owner",
+      "heartbeat renewal and stale-owner takeover",
+      "durable release and higher-token replacement",
+      "checkpoint admission bound to current writer and durable base",
+      "quiescence barrier",
+      "selected operational coordination hash",
+      "stale-base and stale-owner rejection",
+      "older leased transient fencing",
+      "lease record process-exit recovery"
+    ]
+  },
   "atomicPersistence": {
-    "envelopeSchema": "axm.echoworld.atomic-snapshot/v0.01",
-    "receiptSchema": "axm.echoworld.atomic-snapshot-receipt/v0.01",
-    "inspectionSchema": "axm.echoworld.atomic-snapshot-inspection/v0.01",
+    "currentEnvelopeSchema": "axm.echoworld.atomic-snapshot/v0.02",
+    "legacyEnvelopeSchema": "axm.echoworld.atomic-snapshot/v0.01",
+    "currentReceiptSchema": "axm.echoworld.atomic-snapshot-receipt/v0.02",
+    "currentInspectionSchema": "axm.echoworld.atomic-snapshot-inspection/v0.02",
     "candidateRoles": [
       "primary",
       "backup",
       "temp",
       "recoveryTemp"
     ],
-    "selection": "Highest valid generation wins; different valid identities at the same highest generation fail with SNAPSHOT_GENERATION_CONFLICT.",
-    "saveExitStages": [
-      "AFTER_TEMP_WRITE",
-      "AFTER_TEMP_FSYNC",
-      "AFTER_BACKUP_RENAME",
-      "AFTER_BACKUP_DIRECTORY_FSYNC",
-      "AFTER_PRIMARY_RENAME",
-      "AFTER_PRIMARY_DIRECTORY_FSYNC"
-    ],
-    "recoveryExitStages": [
-      "AFTER_RECOVERY_TEMP_FSYNC",
-      "AFTER_RECOVERY_PRIMARY_RENAME",
-      "AFTER_RECOVERY_DIRECTORY_FSYNC"
-    ],
-    "exitCode": 86,
-    "durabilityOperations": [
-      "temp file fsync",
-      "backup candidate file fsync",
-      "backup rename",
-      "directory fsync after backup rename",
-      "primary atomic rename",
-      "directory fsync after primary rename",
-      "installed primary integrity verification",
-      "recovery-temp fsync",
-      "recovery primary rename",
-      "recovery directory fsync",
-      "promoted primary integrity verification"
-    ],
-    "composition": "Atomic envelope validation calls reloadWorld(payload), so a selected snapshot may deterministically complete a pending non-canonical memory-compaction journal."
+    "selection": "Highest eligible valid generation wins; different identities at one highest eligible generation fail closed.",
+    "composition": "Checkpoint evidence is validated against the unrecovered payload before normal non-canonical recovery runs."
   },
-  "memoryCompaction": {
-    "journalSchema": "axm.echoworld.memory-compaction-journal/v0.02",
-    "receiptSchema": "axm.echoworld.memory-compaction-receipt/v0.02",
-    "interruptPoints": [
-      "AFTER_PREPARE",
-      "AFTER_WORKING_SWAP",
-      "AFTER_COMPRESSED_SWAP",
-      "AFTER_COMMIT_RECEIPT"
-    ]
-  },
-  "deferredDelivery": {
-    "receiptSchema": "axm.echoworld.deferred-delivery-receipt/v0.01",
-    "schedulerReceiptSchema": "axm.echoworld.handoff-scheduler-receipt/v0.02",
-    "defaults": {
-      "maxMailboxSize": 8,
-      "maxDeferredRetries": 3,
-      "deferredTtlEpochs": 8
-    }
+  "authorityBoundary": {
+    "canonicalMutationApplied": false,
+    "statement": "Lease and checkpoint coordination may permit or reject persistence but does not define or mutate canonical physical rules."
   },
   "benchmark": {
     "path": "evidence/scheduler-benchmark-latest.json",
     "schema": "axm.echoworld.scheduler-benchmark/v0.02",
-    "boundary": "Existing local scheduler/lifecycle microbenchmark only; atomic persistence, fsync, process-exit recovery, deferred-mailbox, and compaction-recovery timing are not measured."
+    "boundary": "The existing benchmark does not measure writer lease, checkpoint admission, fencing, fsync, or contention performance."
   },
   "claimBoundary": [
-    "The atomic persistence proof uses abrupt process exit on GitHub Actions Ubuntu 24.04, not sudden power loss.",
-    "AFTER_TEMP_WRITE occurs before file fsync; its success proves only that the valid temp survived the tested process exit.",
-    "Directory fsync is required by default, but behavior across every operating system and filesystem is not established.",
-    "There is no single-writer lock, lease, or fencing token yet.",
-    "The immediate parent snapshot ID is recorded; complete historical chain verification is not implemented.",
-    "The API does not yet provide one admission transaction spanning world mutation, scheduler queue, deferred mailbox, and compaction journal.",
-    "Automatic recovery is not possible when every local candidate is invalid.",
-    "No production-scale or massive-world performance claim is established.",
-    "Specialists remain proposal-only and are not independent workers.",
-    "No AI is integrated."
+    "Writer fencing applies to cooperating writers using the lease APIs, not hostile raw filesystem writers.",
+    "Lease time uses supplied finite milliseconds; distributed clock safety is not established.",
+    "The final lease/base check and primary rename are not one kernel-enforced compare-and-swap operation.",
+    "The operational hash covers selected coordination projections; payloadHash protects the complete serialized world.",
+    "The append-only lease ledger currently has no verified archival or garbage collection.",
+    "Checkpoint admission does not freeze arbitrary caller mutation throughout asynchronous save.",
+    "Complete parent and fencing lineage verification is not implemented.",
+    "Process-exit recovery is not universal sudden-power-loss evidence.",
+    "No production-scale, massive-world, multiplayer, independent-worker, emergent-story, or AI claim is established."
   ],
   "githubActions": {
-    "codeHeadSha": "149b000183d23639bfb7d8926d942f92b095a310",
-    "mergeRefSha": "e1a61f0b3b8ccf965fe3015c0ec07d20d8848366",
-    "runId": 33377190670,
-    "jobId": 99441212943,
+    "codeHeadSha": "6455d5dd4dc2d0609ab13ca38e096ca2fee63fc9",
+    "mergeRefSha": "bc2ac474b60bd91e3574e5e597c44d1287c5113b",
+    "runId": 33405590474,
+    "jobId": 99532258471,
     "conclusion": "success"
   }
 }
