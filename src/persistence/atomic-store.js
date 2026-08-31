@@ -24,6 +24,10 @@ import {
   writeFileWithSync,
 } from './fs-durability.js';
 import { recoverAtomicWorldSnapshot } from './recovery.js';
+import {
+  reconcileSnapshotLineageCandidates,
+  recordSnapshotLineage,
+} from './snapshot-lineage.js';
 
 async function copyPrimaryToBackup(paths, {
   onStage,
@@ -56,10 +60,7 @@ async function copyPrimaryToBackup(paths, {
 }
 
 function assertExpectedBase(previous, { expectedBaseGeneration, expectedBaseSnapshotId }) {
-  if (
-    expectedBaseGeneration !== undefined
-    && previous.generation !== expectedBaseGeneration
-  ) {
+  if (expectedBaseGeneration !== undefined && previous.generation !== expectedBaseGeneration) {
     throw new AtomicSnapshotError(
       'CHECKPOINT_BASE_CHANGED',
       'The durable base generation changed before checkpoint admission.',
@@ -71,10 +72,7 @@ function assertExpectedBase(previous, { expectedBaseGeneration, expectedBaseSnap
       },
     );
   }
-  if (
-    expectedBaseSnapshotId !== undefined
-    && previous.snapshotId !== expectedBaseSnapshotId
-  ) {
+  if (expectedBaseSnapshotId !== undefined && previous.snapshotId !== expectedBaseSnapshotId) {
     throw new AtomicSnapshotError(
       'CHECKPOINT_BASE_CHANGED',
       'The durable base snapshot changed before checkpoint admission.',
@@ -86,6 +84,27 @@ function assertExpectedBase(previous, { expectedBaseGeneration, expectedBaseSnap
       },
     );
   }
+}
+
+async function reconcileCurrentLineage({
+  directory,
+  name,
+  generation,
+  candidatePolicy,
+  requireDirectorySync,
+}) {
+  if (generation === 0) return null;
+  const inspection = await inspectAtomicSnapshotStore({ directory, name, candidatePolicy });
+  if (!inspection.selected) {
+    throw new AtomicSnapshotError('SNAPSHOT_LINEAGE_HEAD_UNAVAILABLE', 'Selected snapshot is unavailable for lineage reconciliation.');
+  }
+  return reconcileSnapshotLineageCandidates({
+    directory,
+    name,
+    candidates: inspection.candidates,
+    selectedEnvelope: inspection.selected.envelope,
+    requireDirectorySync,
+  });
 }
 
 export async function saveAtomicWorldSnapshot({
@@ -115,6 +134,13 @@ export async function saveAtomicWorldSnapshot({
     candidatePolicy,
   });
   assertExpectedBase(previous, { expectedBaseGeneration, expectedBaseSnapshotId });
+  const lineageBefore = await reconcileCurrentLineage({
+    directory,
+    name,
+    generation: previous.generation,
+    candidatePolicy,
+    requireDirectorySync,
+  });
 
   const generation = previous.generation + 1;
   const envelope = createAtomicSnapshotEnvelope(world, {
@@ -132,6 +158,7 @@ export async function saveAtomicWorldSnapshot({
     canonicalHash: envelope.canonicalHash,
     payloadHash: envelope.payloadHash,
     checkpointId: envelope.checkpoint?.checkpointId ?? null,
+    checkpointSessionId: envelope.checkpoint?.checkpointSessionId ?? null,
     fencingToken: envelope.checkpoint?.fencingToken ?? null,
     writerId: envelope.checkpoint?.writerId ?? null,
   };
@@ -184,7 +211,23 @@ export async function saveAtomicWorldSnapshot({
       { primary: snapshotCandidateSummary(primary), expectedSnapshotId: envelope.snapshotId },
     );
   }
+  await invokeSnapshotStage(onStage, 'AFTER_PRIMARY_VERIFY', stageContext);
   await invokeWriteAuthorityGuard(authorityGuard, 'AFTER_PRIMARY_VERIFY', stageContext);
+
+  const lineage = await recordSnapshotLineage({
+    directory,
+    name,
+    envelope: primary.envelope,
+    requireDirectorySync,
+  });
+  await invokeSnapshotStage(onStage, 'AFTER_LINEAGE_RECORD_FSYNC', {
+    ...stageContext,
+    lineageHead: lineage.headSnapshotId,
+  });
+  await invokeWriteAuthorityGuard(authorityGuard, 'AFTER_LINEAGE_RECORD_FSYNC', {
+    ...stageContext,
+    lineageHead: lineage.headSnapshotId,
+  });
 
   await cleanupTransientSnapshotPaths(paths);
 
@@ -205,17 +248,32 @@ export async function saveAtomicWorldSnapshot({
     previousSnapshotId: previous.snapshotId,
     backupDirectorySync,
     primaryDirectorySync,
+    lineageBefore,
+    lineage,
     paths,
   };
 }
 
 export async function loadAtomicWorldSnapshot(options = {}) {
-  return recoverAtomicWorldSnapshot({
+  const recovered = await recoverAtomicWorldSnapshot({
     ...options,
     allowMissing: false,
     promote: true,
     cleanupTransient: true,
   });
+  const inspection = await inspectAtomicSnapshotStore({
+    directory: options.directory,
+    name: options.name ?? 'world',
+    candidatePolicy: options.candidatePolicy ?? null,
+  });
+  const lineage = await reconcileSnapshotLineageCandidates({
+    directory: options.directory,
+    name: options.name ?? 'world',
+    candidates: inspection.candidates,
+    selectedEnvelope: inspection.selected.envelope,
+    requireDirectorySync: options.requireDirectorySync ?? true,
+  });
+  return { ...recovered, lineage };
 }
 
 export {
@@ -234,3 +292,10 @@ export {
 } from './snapshot-envelope.js';
 export { inspectAtomicSnapshotStore } from './snapshot-candidates.js';
 export { recoverAtomicWorldSnapshot } from './recovery.js';
+export {
+  inspectSnapshotLineage,
+  reconcileSnapshotLineageCandidates,
+  recordSnapshotLineage,
+  verifySnapshotLineage,
+  verifySnapshotLineageRecords,
+} from './snapshot-lineage.js';

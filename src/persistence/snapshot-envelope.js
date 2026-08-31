@@ -25,13 +25,8 @@ function legacyEnvelopeIdentity(envelope) {
 }
 
 function envelopeIdentity(envelope) {
-  if (envelope.schema === LEGACY_ATOMIC_SNAPSHOT_SCHEMA) {
-    return legacyEnvelopeIdentity(envelope);
-  }
-  return {
-    ...legacyEnvelopeIdentity(envelope),
-    checkpoint: envelope.checkpoint ?? null,
-  };
+  if (envelope.schema === LEGACY_ATOMIC_SNAPSHOT_SCHEMA) return legacyEnvelopeIdentity(envelope);
+  return { ...legacyEnvelopeIdentity(envelope), checkpoint: envelope.checkpoint ?? null };
 }
 
 function snapshotIdFor(envelope) {
@@ -40,11 +35,7 @@ function snapshotIdFor(envelope) {
 
 export function createAtomicSnapshotEnvelope(
   world,
-  {
-    generation,
-    parentSnapshotId = null,
-    checkpoint = null,
-  },
+  { generation, parentSnapshotId = null, checkpoint = null },
 ) {
   if (!Number.isInteger(generation) || generation < 1) {
     throw new AtomicSnapshotError(

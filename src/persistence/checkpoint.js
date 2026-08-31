@@ -1,8 +1,9 @@
-import { canonicalHash } from '../core/state.js';
+import { canonicalHash, persistWorld } from '../core/state.js';
 import { AtomicSnapshotError, sha256 } from './atomic-types.js';
 import { WRITER_LEASE_SCHEMAS } from './writer-lease.js';
 
-export const CHECKPOINT_ADMISSION_SCHEMA = 'axm.echoworld.checkpoint-admission/v0.01';
+export const CHECKPOINT_ADMISSION_SCHEMA = 'axm.echoworld.checkpoint-admission/v0.02';
+export const LEGACY_CHECKPOINT_ADMISSION_SCHEMA = 'axm.echoworld.checkpoint-admission/v0.01';
 
 const QUIESCENT_WAKE_STATES = new Set(['DORMANT', 'REPAIR']);
 
@@ -53,7 +54,7 @@ function mailboxProjection(world) {
         schedulerId: entry.schedulerId,
         eventId: entry.handoff?.eventId ?? null,
         causalEventId: entry.handoff?.causalEventId ?? null,
-        recipientCellId: entry.handoff?.recipientCellId ?? null,
+        recipientCellId: entry.handoff?.arrivalKey ?? entry.handoff?.recipientCellId ?? null,
         retryCount: entry.retryCount ?? null,
         maxRetries: entry.maxRetries ?? null,
         deferredAtEpoch: entry.deferredAtEpoch ?? null,
@@ -79,7 +80,7 @@ function compactionProjection(world) {
           afterCompressedHash: tx.after?.compressedHash ?? null,
         }];
       }),
-  );
+   );
 }
 
 export function checkpointOperationalProjection(world) {
@@ -117,7 +118,7 @@ export function inspectCheckpointBarrier(world, { requireQuiescent = true } = {}
     .filter((cell) => Boolean(cell.memory?.pendingCompaction)).length;
 
   return {
-    schema: 'axm.echoworld.checkpoint-barrier-inspection/v0.01',
+    schema: 'axm.echoworld.checkpoint-barrier-inspection/v0.02',
     admitted: !requireQuiescent || transientCells.length === 0,
     reason: requireQuiescent && transientCells.length > 0 ? 'UNQUIESCED_CELL' : null,
     transientCells,
@@ -144,6 +145,10 @@ export function createCheckpointAdmission({
   baseGeneration,
   baseSnapshotId,
   admittedAtMs,
+  admittedLogicalMs,
+  clockObservationId,
+  checkpointSessionId,
+  sourcePayloadHash,
   requireQuiescent = true,
 }) {
   if (!lease || lease.schema !== WRITER_LEASE_SCHEMAS.handle) {
@@ -152,6 +157,24 @@ export function createCheckpointAdmission({
   if (!Number.isInteger(baseGeneration) || baseGeneration < 0) {
     throw new AtomicSnapshotError('INVALID_CHECKPOINT_BASE_GENERATION', 'baseGeneration must be non-negative.');
   }
+  for (const [value, label] of [
+    [admittedAtMs, 'admittedAtMs'],
+    [admittedLogicalMs, 'admittedLogicalMs'],
+  ]) {
+    if (!Number.isFinite(value)) {
+      throw new AtomicSnapshotError('INVALID_CHECKPOINT_TIME', `${label} must be finite.`);
+    }
+  }
+  for (const [value, label] of [
+    [clockObservationId, 'clockObservationId'],
+    [checkpointSessionId, 'checkpointSessionId'],
+    [sourcePayloadHash, 'sourcePayloadHash'],
+  ]) {
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new AtomicSnapshotError('INVALID_CHECKPOINT_SESSION_FIELD', `${label} must be non-empty.`);
+    }
+  }
+
   const barrier = inspectCheckpointBarrier(world, { requireQuiescent });
   if (!barrier.admitted) {
     throw new AtomicSnapshotError('CHECKPOINT_BARRIER_REJECTED', 'World is not quiescent enough for checkpoint admission.', {
@@ -165,6 +188,10 @@ export function createCheckpointAdmission({
     leaseId: lease.leaseId,
     fencingToken: lease.fencingToken,
     admittedAtMs,
+    admittedLogicalMs,
+    clockObservationId,
+    checkpointSessionId,
+    sourcePayloadHash,
     admittedBaseGeneration: baseGeneration,
     admittedBaseSnapshotId: baseSnapshotId,
     worldRevision: world.revision,
@@ -179,7 +206,10 @@ export function createCheckpointAdmission({
 }
 
 export function validateCheckpointAdmission(checkpoint) {
-  if (!checkpoint || checkpoint.schema !== CHECKPOINT_ADMISSION_SCHEMA) {
+  if (
+    !checkpoint
+    || ![CHECKPOINT_ADMISSION_SCHEMA, LEGACY_CHECKPOINT_ADMISSION_SCHEMA].includes(checkpoint.schema)
+  ) {
     return { valid: false, reason: 'CHECKPOINT_SCHEMA_MISMATCH' };
   }
   for (const field of ['writerId', 'leaseId', 'checkpointId', 'canonicalHash', 'operationalHash']) {
@@ -198,6 +228,16 @@ export function validateCheckpointAdmission(checkpoint) {
   }
   if (!Number.isFinite(checkpoint.admittedAtMs)) {
     return { valid: false, reason: 'INVALID_ADMITTED_AT' };
+  }
+  if (checkpoint.schema === CHECKPOINT_ADMISSION_SCHEMA) {
+    if (!Number.isFinite(checkpoint.admittedLogicalMs)) {
+      return { valid: false, reason: 'INVALID_ADMITTED_LOGICAL_TIME' };
+    }
+    for (const field of ['clockObservationId', 'checkpointSessionId', 'sourcePayloadHash']) {
+      if (typeof checkpoint[field] !== 'string' || checkpoint[field].length === 0) {
+        return { valid: false, reason: `INVALID_${field.toUpperCase()}` };
+      }
+    }
   }
   const expectedId = `CP_${sha256(JSON.stringify(checkpointIdentity(checkpoint))).slice(0, 24)}`;
   if (expectedId !== checkpoint.checkpointId) {
@@ -218,6 +258,12 @@ export function validateCheckpointAgainstWorld(checkpoint, world) {
   const operationalHash = sha256(JSON.stringify(checkpointOperationalProjection(world)));
   if (checkpoint.operationalHash !== operationalHash) {
     return { valid: false, reason: 'CHECKPOINT_OPERATIONAL_HASH_MISMATCH' };
+  }
+  if (
+    checkpoint.schema === CHECKPOINT_ADMISSION_SCHEMA
+    && checkpoint.sourcePayloadHash !== sha256(persistWorld(world))
+  ) {
+    return { valid: false, reason: 'CHECKPOINT_SOURCE_PAYLOAD_HASH_MISMATCH' };
   }
   return { valid: true, reason: null };
 }

@@ -3,13 +3,18 @@ import {
   atomicSnapshotPaths,
 } from './atomic-types.js';
 import {
-  createCheckpointAdmission,
-  inspectCheckpointBarrier,
-} from './checkpoint.js';
+  checkpointSourceMutationEvidence,
+  createImmutableCheckpointSession,
+} from './checkpoint-session.js';
 import {
   loadAtomicWorldSnapshot,
   saveAtomicWorldSnapshot,
 } from './atomic-store.js';
+import {
+  acquirePlatformWriteLock,
+  assertPlatformWriteLock,
+  releasePlatformWriteLock,
+} from './platform-lock.js';
 import { readSnapshotCandidate } from './snapshot-candidates.js';
 import { recoverAtomicWorldSnapshot } from './recovery.js';
 import {
@@ -27,10 +32,7 @@ function nowFrom(clock) {
 }
 
 function assertExpectedBase(base, expectedBaseGeneration, expectedBaseSnapshotId) {
-  if (
-    base.generation !== expectedBaseGeneration
-    || base.snapshotId !== expectedBaseSnapshotId
-  ) {
+  if (base.generation !== expectedBaseGeneration || base.snapshotId !== expectedBaseSnapshotId) {
     throw new AtomicSnapshotError(
       'CHECKPOINT_BASE_CHANGED',
       'The durable base changed after the lease handle was issued.',
@@ -93,7 +95,10 @@ export async function saveLeasedAtomicWorldSnapshot({
   renewForMs = lease?.leaseDurationMs,
   minimumRemainingMs = 1,
   requireQuiescent = true,
+  platformLockDurationMs = null,
+  onCheckpointSession = null,
   onAuthorityBoundary = null,
+  onPlatformLockStage = null,
   onStage = null,
   requireDirectorySync = true,
 } = {}) {
@@ -109,7 +114,7 @@ export async function saveLeasedAtomicWorldSnapshot({
       requireDirectorySync,
     });
   }
-  const assertion = await assertWriterLease({
+  const initialAssertion = await assertWriterLease({
     directory,
     name,
     lease: currentLease,
@@ -118,87 +123,141 @@ export async function saveLeasedAtomicWorldSnapshot({
     requireDirectorySync,
   });
 
-  const candidatePolicy = writerLeaseCandidatePolicy(currentLease.fencingToken);
-  const base = await recoverAtomicWorldSnapshot({
+  let latestLogicalMs = initialAssertion.logicalNowMs;
+  const lockDuration = platformLockDurationMs ?? Math.max(1, initialAssertion.remainingMs);
+  const platformLock = await acquirePlatformWriteLock({
     directory,
     name,
-    allowMissing: true,
-    promote: true,
-    cleanupTransient: true,
+    ownerId: `${currentLease.writerId}:${currentLease.leaseId}`,
+    fencingToken: currentLease.fencingToken,
+    leaseId: currentLease.leaseId,
+    logicalNowMs: latestLogicalMs,
+    lockDurationMs: lockDuration,
+    onStage: onPlatformLockStage,
     requireDirectorySync,
-    candidatePolicy,
-  });
-  assertExpectedBase(base, expectedBaseGeneration, expectedBaseSnapshotId);
-
-  const barrier = inspectCheckpointBarrier(world, { requireQuiescent });
-  if (!barrier.admitted) {
-    throw new AtomicSnapshotError(
-      'CHECKPOINT_BARRIER_REJECTED',
-      'The world is not quiescent enough for a leased checkpoint.',
-      { barrier },
-    );
-  }
-  const admissionNow = nowFrom(clock);
-  const checkpoint = createCheckpointAdmission({
-    world,
-    lease: currentLease,
-    baseGeneration: base.generation,
-    baseSnapshotId: base.snapshotId,
-    admittedAtMs: admissionNow,
-    requireQuiescent,
   });
 
-  const authorityGuard = async (boundary, context) => {
-    const boundaryNow = nowFrom(clock);
-    const leaseAssertion = await assertWriterLease({
+  try {
+    const candidatePolicy = writerLeaseCandidatePolicy(currentLease.fencingToken);
+    const base = await recoverAtomicWorldSnapshot({
+      directory,
+      name,
+      allowMissing: true,
+      promote: true,
+      cleanupTransient: true,
+      requireDirectorySync,
+      candidatePolicy,
+    });
+    assertExpectedBase(base, expectedBaseGeneration, expectedBaseSnapshotId);
+
+    const admissionAssertion = await assertWriterLease({
       directory,
       name,
       lease: currentLease,
-      nowMs: boundaryNow,
-      minimumRemainingMs: boundary === 'BEFORE_PRIMARY_RENAME' ? minimumRemainingMs : 0,
+      nowMs: nowFrom(clock),
+      minimumRemainingMs,
       requireDirectorySync,
     });
-    if (boundary === 'BEFORE_PRIMARY_RENAME') {
-      await assertPrimaryStillMatchesBase({
+    latestLogicalMs = admissionAssertion.logicalNowMs;
+    await assertPlatformWriteLock({
+      directory,
+      name,
+      lock: platformLock,
+      logicalNowMs: latestLogicalMs,
+    });
+
+    const session = createImmutableCheckpointSession({
+      world,
+      lease: currentLease,
+      baseGeneration: base.generation,
+      baseSnapshotId: base.snapshotId,
+      admittedAtMs: admissionAssertion.nowMs,
+      admittedLogicalMs: admissionAssertion.logicalNowMs,
+      clockObservationId: admissionAssertion.clockObservationId,
+      requireQuiescent,
+    });
+    if (onCheckpointSession) await onCheckpointSession(session);
+
+    const authorityGuard = async (boundary, context) => {
+      const leaseAssertion = await assertWriterLease({
         directory,
         name,
-        expectedBaseGeneration: base.generation,
-        expectedBaseSnapshotId: base.snapshotId,
+        lease: currentLease,
+        nowMs: nowFrom(clock),
+        minimumRemainingMs: boundary === 'BEFORE_PRIMARY_RENAME' ? minimumRemainingMs : 0,
+        requireDirectorySync,
       });
-    }
-    if (onAuthorityBoundary) {
-      await onAuthorityBoundary(boundary, {
-        ...context,
-        leaseAssertion,
-        checkpoint,
+      latestLogicalMs = leaseAssertion.logicalNowMs;
+      const platformLockAssertion = await assertPlatformWriteLock({
+        directory,
+        name,
+        lock: platformLock,
+        logicalNowMs: latestLogicalMs,
       });
-    }
-  };
+      if (boundary === 'BEFORE_PRIMARY_RENAME') {
+        await assertPrimaryStillMatchesBase({
+          directory,
+          name,
+          expectedBaseGeneration: base.generation,
+          expectedBaseSnapshotId: base.snapshotId,
+        });
+      }
+      if (onAuthorityBoundary) {
+        await onAuthorityBoundary(boundary, {
+          ...context,
+          leaseAssertion,
+          platformLockAssertion,
+          checkpoint: session.checkpoint,
+          checkpointSessionId: session.sessionId,
+        });
+      }
+    };
 
-  const snapshot = await saveAtomicWorldSnapshot({
-    directory,
-    name,
-    world,
-    checkpoint,
-    expectedBaseGeneration: base.generation,
-    expectedBaseSnapshotId: base.snapshotId,
-    candidatePolicy,
-    authorityGuard,
-    onStage,
-    requireDirectorySync,
-  });
+    const snapshot = await saveAtomicWorldSnapshot({
+      directory,
+      name,
+      world: session.snapshotWorld,
+      checkpoint: session.checkpoint,
+      expectedBaseGeneration: base.generation,
+      expectedBaseSnapshotId: base.snapshotId,
+      candidatePolicy,
+      authorityGuard,
+      onStage,
+      requireDirectorySync,
+    });
+    const sourceMutation = checkpointSourceMutationEvidence(session, world);
 
-  return {
-    ...snapshot,
-    leaseAssertion: assertion,
-    checkpointBarrier: barrier,
-    nextLease: {
-      ...currentLease,
-      baseGeneration: snapshot.generation,
-      baseSnapshotId: snapshot.snapshotId,
-      baseCanonicalHash: snapshot.canonicalHash,
-    },
-  };
+    return {
+      ...snapshot,
+      leaseAssertion: initialAssertion,
+      platformLock: {
+        lockId: platformLock.lockId,
+        fencingToken: platformLock.fencingToken,
+      },
+      checkpointBarrier: session.checkpointBarrier,
+      checkpointSession: {
+        sessionId: session.sessionId,
+        sourcePayloadHash: session.sourcePayloadHash,
+        operationalHash: session.operationalHash,
+      },
+      sourceMutation,
+      nextLease: {
+        ...currentLease,
+        baseGeneration: snapshot.generation,
+        baseSnapshotId: snapshot.snapshotId,
+        baseCanonicalHash: snapshot.canonicalHash,
+      },
+    };
+  } finally {
+    await releasePlatformWriteLock({
+      directory,
+      name,
+      lock: platformLock,
+      logicalNowMs: latestLogicalMs,
+      onStage: onPlatformLockStage,
+      requireDirectorySync,
+    }).catch(() => {});
+  }
 }
 
 export async function loadFencedAtomicWorldSnapshot({
@@ -208,13 +267,7 @@ export async function loadFencedAtomicWorldSnapshot({
   nowMs = Date.now(),
   requireDirectorySync = true,
 } = {}) {
-  await assertWriterLease({
-    directory,
-    name,
-    lease,
-    nowMs,
-    requireDirectorySync,
-  });
+  await assertWriterLease({ directory, name, lease, nowMs, requireDirectorySync });
   return loadAtomicWorldSnapshot({
     directory,
     name,
