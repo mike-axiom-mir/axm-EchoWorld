@@ -1,8 +1,13 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-export const ATOMIC_SNAPSHOT_SCHEMA = 'axm.echoworld.atomic-snapshot/v0.01';
-export const ATOMIC_SNAPSHOT_RECEIPT_SCHEMA = 'axm.echoworld.atomic-snapshot-receipt/v0.01';
+export const ATOMIC_SNAPSHOT_SCHEMA = 'axm.echoworld.atomic-snapshot/v0.02';
+export const LEGACY_ATOMIC_SNAPSHOT_SCHEMA = 'axm.echoworld.atomic-snapshot/v0.01';
+export const SUPPORTED_ATOMIC_SNAPSHOT_SCHEMAS = Object.freeze([
+  LEGACY_ATOMIC_SNAPSHOT_SCHEMA,
+  ATOMIC_SNAPSHOT_SCHEMA,
+]);
+export const ATOMIC_SNAPSHOT_RECEIPT_SCHEMA = 'axm.echoworld.atomic-snapshot-receipt/v0.02';
 
 export const ATOMIC_SNAPSHOT_STAGES = Object.freeze([
   'AFTER_TEMP_WRITE',
@@ -14,6 +19,17 @@ export const ATOMIC_SNAPSHOT_STAGES = Object.freeze([
   'AFTER_RECOVERY_TEMP_FSYNC',
   'AFTER_RECOVERY_PRIMARY_RENAME',
   'AFTER_RECOVERY_DIRECTORY_FSYNC',
+]);
+
+export const ATOMIC_WRITE_AUTHORITY_BOUNDARIES = Object.freeze([
+  'AFTER_BASE_RECOVERY',
+  'BEFORE_TEMP_WRITE',
+  'AFTER_TEMP_FSYNC',
+  'BEFORE_BACKUP_COPY',
+  'AFTER_BACKUP_DIRECTORY_FSYNC',
+  'BEFORE_PRIMARY_RENAME',
+  'AFTER_PRIMARY_DIRECTORY_FSYNC',
+  'AFTER_PRIMARY_VERIFY',
 ]);
 
 export class AtomicSnapshotError extends Error {
@@ -52,4 +68,14 @@ export async function invokeSnapshotStage(onStage, stage, context) {
     throw new AtomicSnapshotError('UNKNOWN_STAGE', `Unknown snapshot stage: ${stage}`);
   }
   if (onStage) await onStage(stage, context);
+}
+
+export async function invokeWriteAuthorityGuard(guard, boundary, context) {
+  if (!ATOMIC_WRITE_AUTHORITY_BOUNDARIES.includes(boundary)) {
+    throw new AtomicSnapshotError(
+      'UNKNOWN_WRITE_AUTHORITY_BOUNDARY',
+      `Unknown write authority boundary: ${boundary}`,
+    );
+  }
+  if (guard) await guard(boundary, context);
 }

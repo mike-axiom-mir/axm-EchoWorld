@@ -35,23 +35,36 @@ export async function recoverAtomicWorldSnapshot({
   cleanupTransient = true,
   onStage = null,
   requireDirectorySync = true,
+  candidatePolicy = null,
 } = {}) {
   await mkdir(directory, { recursive: true });
-  const inspection = await inspectAtomicSnapshotStore({ directory, name });
+  const inspection = await inspectAtomicSnapshotStore({ directory, name, candidatePolicy });
 
   if (inspection.conflict) {
     throw new AtomicSnapshotError(
       'SNAPSHOT_GENERATION_CONFLICT',
-      'Multiple valid snapshots claim the same highest generation with different identities.',
+      'Multiple eligible valid snapshots claim the same highest generation with different identities.',
       { ...receiptBase(inspection), status: 'CONFLICT', conflict: inspection.conflict },
     );
   }
 
   if (!inspection.selected) {
-    if (!inspection.anyExisting && allowMissing) {
+    const fencedTransientsOnly = (
+      Boolean(candidatePolicy)
+      && inspection.anyValid
+      && !inspection.anyEligibleValid
+      && inspection.candidates
+        .filter((candidate) => candidate.valid)
+        .every((candidate) => ['temp', 'recoveryTemp'].includes(candidate.role))
+    );
+    if ((!inspection.anyExisting || fencedTransientsOnly) && allowMissing) {
+      if (cleanupTransient && fencedTransientsOnly) {
+        await cleanupTransientSnapshotPaths(inspection.paths);
+        await syncDirectory(directory, { requireDirectorySync });
+      }
       return {
         ...receiptBase(inspection),
-        status: 'EMPTY',
+        status: fencedTransientsOnly ? 'FENCED_TRANSIENTS_DISCARDED' : 'EMPTY',
         promoted: false,
         generation: 0,
         snapshotId: null,
@@ -60,9 +73,14 @@ export async function recoverAtomicWorldSnapshot({
       };
     }
     throw new AtomicSnapshotError(
-      'NO_VALID_SNAPSHOT',
-      'No valid atomic snapshot candidate was available.',
-      { ...receiptBase(inspection), status: 'NO_VALID_SNAPSHOT' },
+      inspection.anyValid ? 'NO_ELIGIBLE_SNAPSHOT' : 'NO_VALID_SNAPSHOT',
+      inspection.anyValid
+        ? 'No valid snapshot candidate passed the active recovery policy.'
+        : 'No valid atomic snapshot candidate was available.',
+      {
+        ...receiptBase(inspection),
+        status: inspection.anyValid ? 'NO_ELIGIBLE_SNAPSHOT' : 'NO_VALID_SNAPSHOT',
+      },
     );
   }
 
@@ -124,6 +142,7 @@ export async function recoverAtomicWorldSnapshot({
     parentSnapshotId: selected.envelope.parentSnapshotId,
     canonicalHash: selected.envelope.canonicalHash,
     payloadHash: selected.envelope.payloadHash,
+    checkpoint: selected.envelope.checkpoint ?? null,
     directorySync,
     world: selected.world,
   };
