@@ -23,55 +23,81 @@ See `AGENTS.md` for the one-chat/one-lane rule.
 - truth-before-memory canonical event ordering
 - bounded working, episodic, compressed, and lineage memory
 - explicit `CANONICAL` versus `OBSERVED` memory provenance
-- copy-on-write memory compaction with a persisted before/after journal
-- automatic recovery of pending compaction during reload
-- deterministic recovery from interruption after prepare, working swap, compressed swap, or commit-receipt write
-- rollback to the complete before-image when the after-image is corrupt
-- explicit `REPAIR` state when the before-image cannot be trusted
-- idempotent recovery and one final commit receipt per compaction
-- provenance-aware summaries that never merge CANONICAL and OBSERVED records
-- stale specialist proposal rejection
-- deterministic conflict preservation/rejection for contradictory specialist proposals
-- bounded handoff envelopes with duplicate, cycle, hop-limit, future-revision, and repeated-arrival guards
-- deterministic queued handoff scheduler
-- hard processing, queue, mailbox, retry, and logical-TTL budgets
-- persisted unfinished scheduler jobs and deferred mailboxes
-- accepted SOUND handoff recipient lifecycle: wake, bounded specialists, deterministic merge, OBSERVED perception, optional memory, relay, sleep
-- committed-source lineage detection through `causalEventId + sourceRevision`
-- exact-once deferred delivery after a busy cell becomes `DORMANT`
-- direct lifecycle and scheduler-batch canonical-hash witnesses
-- JSON persistence/reload with snapshot-shape validation and non-canonical state backfill
-- memory-enabled vs memory-disabled A/B replay
-- envelope-only vs lifecycle/no-memory vs lifecycle/with-memory local microbenchmark
+- copy-on-write memory compaction with persisted before/after images and recovery
+- explicit `REPAIR` state when a trusted memory before-image is corrupt
+- deterministic specialist matching, stale rejection, and conflict preservation
+- bounded handoff guards, deterministic scheduling, and explicit resource budgets
+- accepted SOUND handoff recipient lifecycle: wake, specialists, perception, optional memory, relay, sleep
+- bounded persistent deferred delivery for busy recipient cells
+- exact-once deferred release with logical TTL, retry, deduplication, and receipts
+- integrity-wrapped atomic snapshot persistence
+- deterministic snapshot generations linked by `parentSnapshotId`
+- primary, backup, temp, and recovery-temp candidate inspection
+- highest-valid-generation recovery with fail-closed same-generation conflict detection
+- temp-file fsync, backup preservation, atomic primary rename, directory fsync, and post-install verification
+- abrupt child-process exit recovery at six save stages and three recovery-promotion stages
+- automatic pending memory-compaction recovery after atomic snapshot load
+- memory-enabled versus memory-disabled canonical equivalence
+- local scheduler/lifecycle microbenchmark
 
 ## Authority boundary
 
-Memory, compaction journals, perception, wake state, specialists, handoff guards, scheduler jobs, deferred mailboxes, and scheduler receipts are not physical truth authority.
+Canonical physical truth contains world revision, actor positions, and cell physical state.
+
+Memory, compaction journals, perception, wake state, specialists, handoff guards, scheduler jobs, deferred mailboxes, snapshot candidates, and persistence receipts do not gain physical truth authority merely by existing.
 
 A failed canonical transition creates no memory about an event that never committed.
 
-A handoff can create only an **OBSERVED** local memory after its guard accepts it. That memory retains causal provenance and cannot promote itself into canonical truth.
+A handoff can create only an **OBSERVED** local memory after deterministic acceptance and recipient processing. It cannot promote itself into canonical truth.
 
-A valid handoff aimed at a busy cell is inspected but not accepted. Until release, it is not added to the seen ledger and creates no lifecycle, perception, specialist, or memory receipt.
+Conflicting specialist proposals cannot gain authority through worker finish order.
 
-Compaction stores complete before and after images plus hashes before swapping either array. Recovery may finish a recognized interrupted swap, or restore the valid before-image when the proposed after-image is corrupt. If the before-image is corrupt, the cell enters `REPAIR`; EchoWorld does not guess which memory was real.
+Snapshot recovery validates payload integrity, world reloadability, world schema, and canonical hash. It chooses the highest valid generation. If two different valid snapshots claim the same highest generation, recovery stops with `SNAPSHOT_GENERATION_CONFLICT` instead of guessing.
 
-Conflicting specialist proposals do not gain authority through worker finish order. They are preserved as deterministic conflicts and rejected from canonical mutation.
+## Atomic snapshot protocol
 
-## Interruption-safe compaction
+The store uses these files:
 
-The tested interruption points are:
+- `world.snapshot.json` for the primary
+- `world.snapshot.backup.json` for the previous primary
+- `world.snapshot.tmp.json` for a candidate write
+- `world.snapshot.recover.tmp.json` for recovery promotion
 
-- `AFTER_PREPARE`
-- `AFTER_WORKING_SWAP`
-- `AFTER_COMPRESSED_SWAP`
-- `AFTER_COMMIT_RECEIPT`
+Each envelope records:
 
-A pending journal survives `persistWorld()` and is inspected automatically by `reloadWorld()`.
+- schema
+- generation
+- parent snapshot ID
+- world schema
+- canonical hash
+- payload hash
+- UTF-8 JSON payload
+- deterministic snapshot ID
 
-Recognized partial states roll forward to the deterministic after-image. A corrupt after-image rolls back to the complete before-image. A corrupt before-image fails closed in `REPAIR` with the journal retained for explicit repair.
+The tested save path is:
 
-This is interruption-safe recovery inside the JSON snapshot model. It is **not** yet crash-atomic filesystem persistence.
+```text
+validate/recover existing store
+→ write temp
+→ fsync temp
+→ preserve previous primary as backup
+→ fsync directory
+→ atomically rename temp to primary
+→ fsync directory
+→ verify installed primary
+```
+
+The tested recovery path is:
+
+```text
+inspect primary + backup + temp + recovery-temp
+→ validate every candidate
+→ choose highest non-conflicting valid generation
+→ copy selected candidate to synced recovery-temp
+→ atomically rename recovery-temp to primary
+→ fsync directory
+→ verify promoted primary
+```
 
 ## Run
 
@@ -84,42 +110,58 @@ npm run benchmark
 
 ## Current evidence
 
-GitHub Actions independently executed the complete implementation suite on Node.js v22.23.2:
+GitHub Actions independently executed the complete implementation suite on Node.js v22.23.2 and Ubuntu 24.04:
 
-- 49 tests
-- 49 passed
+- 67 tests
+- 67 passed
 - 0 failed
-- implementation head `0d0050a2323f2775093bf8eed3c0df5e6492ffc7`
-- run `33374326936`
-- job `99432286023`
+- 0 cancelled
+- 0 skipped
+- implementation head `149b000183d23639bfb7d8926d942f92b095a310`
+- run `33377190670`
+- job `99441212943`
+- merge ref `e1a61f0b3b8ccf965fe3015c0ec07d20d8848366`
+- test duration `2025.432072 ms`
 - conclusion `success`
-- test duration `761.555682 ms`
 
-The nine compaction checks cover normal copy-on-write commit, all four interruption points, idempotent recovery, corrupt-after rollback, corrupt-before repair lock, and provenance separation.
+The atomic persistence tests include nine abrupt child-process exits using exit code `86`:
+
+- six save stages from temp write through primary directory fsync
+- three recovery-promotion stages from recovery-temp fsync through recovery directory fsync
+
+They also verify generation chaining, backup fallback, valid-temp promotion, invalid-temp rejection, payload tamper detection, deterministic identical-candidate priority, same-generation conflict refusal, refusal to overwrite a fully invalid store, and integration with pending memory-compaction recovery.
 
 See:
 
+- `docs/ATOMIC_PERSISTENCE.md`
 - `evidence/test-receipt-latest.json`
+- `evidence/atomic-snapshot-recovery-latest.json`
 - `evidence/memory-compaction-recovery-latest.json`
 - `evidence/scheduler-benchmark-latest.json`
 
-The benchmark remains a noisy single-machine timing sample. Compaction recovery performance has not been benchmarked.
+## Honest boundary
 
-## Not proven yet
+This is a process-exit-resilient, integrity-wrapped atomic snapshot protocol on the tested Linux CI filesystem.
 
-- crash-atomic durable filesystem storage
-- atomic queue/mailbox/compaction persistence under process or power loss
+It is **not** proof of sudden power-loss durability. In particular, recovery after `AFTER_TEMP_WRITE` shows that a valid temp file survived the tested process exit. That stage had not yet completed file fsync and must not be described as power-loss-safe.
+
+Still unproven:
+
+- storage-controller or hardware cache durability
+- behavior across every filesystem and operating system
+- cross-device rename behavior
+- multi-writer locking or writer-lease ownership
+- a fully verified parent-chain lineage beyond the immediate parent ID
+- one atomic transaction spanning scheduler queue, deferred mailbox, and compaction journal
+- automatic reconstruction when every candidate is corrupt
 - production-scale performance
 - massive sleeping-world scaling
-- physical sound attenuation or material-aware propagation
-- genuine simultaneous/concurrent cell execution
-- fairness across unrelated scheduler jobs competing for one cell
-- corrupted-before automatic reconstruction without an external trusted source
-- independent parallel specialist execution
-- domain-specific canonical resolution for contradictory specialist proposals
-- story quality or emergent-world value
+- physical attenuation and material-aware propagation
+- genuine simultaneous cell execution
+- scheduler fairness
 - multiplayer/network determinism
-- lossless recovery of mailbox or queue capacity overflow
+- independent parallel specialist workers
+- emergent-story quality
 - AI integration
 
 No AI belongs in v0.01.

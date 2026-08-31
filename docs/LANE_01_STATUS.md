@@ -2,21 +2,35 @@
 
 Branch: `chatgpt/echoworld-lane-01`
 
-Status: interruption-safe memory compaction implemented and verified on top of recipient lifecycle and bounded deferred delivery.
+Status: process-exit-resilient integrity-wrapped atomic snapshot persistence implemented and verified on top of compaction recovery, recipient lifecycle, and deferred delivery.
 
-Current proof checkpoint:
+Current implementation checkpoint:
 
-- implementation head `0d0050a2323f2775093bf8eed3c0df5e6492ffc7`;
-- GitHub Actions run `33374326936`, job `99432286023`;
+- implementation head `149b000183d23639bfb7d8926d942f92b095a310`;
+- GitHub Actions run `33377190670`;
+- job `99441212943`;
+- merge ref `e1a61f0b3b8ccf965fe3015c0ec07d20d8848366`;
 - Node.js v22.23.2 on Ubuntu 24.04;
-- 49 tests passed, 0 failed;
-- working-memory compaction now prepares complete hashed before/after images before either array is swapped;
-- reload recovers interruptions after prepare, working swap, compressed swap, and final-receipt write;
-- recognized intermediate states roll forward to the same result as uninterrupted compaction;
-- a corrupt after-image rolls back to the complete before-image without fake memory;
-- a corrupt before-image retains the journal and enters explicit `REPAIR`;
-- recovery is idempotent and final commit receipts are not duplicated;
-- CANONICAL and OBSERVED records remain separate during summary compaction;
-- all tested compaction and recovery paths leave canonical physical truth unchanged.
+- 67 tests passed, 0 failed;
+- total test duration `2025.432072 ms`;
+- snapshot envelopes verify payload hash, deterministic identity, world reload, world schema, and canonical hash;
+- generation 2 links to generation 1 through `parentSnapshotId`;
+- recovery inspects primary, backup, temp, and recovery-temp;
+- highest valid generation wins;
+- different valid snapshots claiming the same highest generation stop with conflict;
+- previous primary is retained as backup;
+- save uses temp-file fsync, same-directory rename, directory fsync, and post-install verification;
+- recovery promotion uses a synced recovery temp, rename, directory fsync, and verification;
+- six abrupt save-process exit stages recover the expected generation 2 state;
+- three abrupt recovery-promotion exits remain restartable and recover generation 2;
+- corrupt primary falls back to valid backup;
+- valid higher temp is promoted;
+- invalid high-looking temp is rejected;
+- all-invalid stores are not silently overwritten;
+- atomic load also recovers a persisted pending memory-compaction journal.
+
+Claim boundary:
+
+This is process-exit resilience on the tested Linux CI filesystem. It is not universal sudden power-loss, storage-controller, every-filesystem, or multi-writer proof.
 
 This chat remains confined to this single lane. PR #2 remains the coherent review surface; no second implementation branch was created and nothing was silently merged.

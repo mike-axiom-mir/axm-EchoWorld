@@ -1,6 +1,6 @@
 # EchoWorld v0.01 Architecture
 
-The v0.01 harness keeps canonical physical truth separate from experiential, advisory, perception, activation, deferred-delivery, memory-compaction, and scheduling state.
+The v0.01 harness keeps canonical physical truth separate from experiential, advisory, perception, activation, deferred-delivery, memory-compaction, persistence, and scheduling state.
 
 ## Canonical event lifecycle
 
@@ -28,7 +28,7 @@ The scheduler performs:
 
 `inspect validity -> detect busy recipient -> defer into bounded mailbox -> retry on later deterministic drain epoch -> release only when DORMANT -> accept -> recipient lifecycle`
 
-Inspection and acceptance are separate operations. Deferral happens before acceptance, so a deferred event is not added to `seenEventIds` or `seenArrivalKeys`. It creates no perception, memory, specialist, or lifecycle receipt until it is actually released and accepted.
+Inspection and acceptance are separate operations. Deferral happens before acceptance, so a deferred event is not added to `seenEventIds` or `seenArrivalKeys`. It creates no perception, memory, specialist, or lifecycle receipt until actual release and acceptance.
 
 Each scheduler job declares `maxMailboxSize`, `maxDeferredRetries`, and `deferredTtlEpochs`. The epoch is a logical scheduler-drain counter, not wall-clock time and not canonical world revision.
 
@@ -37,8 +37,6 @@ Mailbox overflow, expiry, retry exhaustion, cancellation, and queue-capacity-blo
 ## Interruption-safe memory compaction
 
 Working-memory compaction uses a copy-on-write journal rather than destructive splice-first mutation.
-
-### Prepare
 
 Before either memory array changes, EchoWorld stores:
 
@@ -49,33 +47,75 @@ Before either memory array changes, EchoWorld stores:
 - overflow count and source event IDs;
 - status `PREPARED`.
 
-### Apply
-
-The normal sequence is:
+Normal sequence:
 
 `PREPARED -> WORKING_SWAPPED -> COMPRESSED_SWAPPED -> COMMIT_RECEIPT_WRITTEN -> journal cleared`
 
-A final compaction receipt is written before the journal is cleared. The cell records `compactionGeneration` and `lastCompactionId` before clearing pending state.
+`reloadWorld()` scans pending journals in stable cell-ID order.
 
-### Recovery
+Recognized mixed before/after states roll forward to the complete after-image. A corrupt after-image rolls back to the valid complete before-image. A corrupt before-image retains the journal, marks repair required, and places the cell in `REPAIR`.
 
-`reloadWorld()` backfills compaction fields, initializes the compaction receipt ledger, and scans cells in stable cell-ID order.
+Compaction summary keys include provenance class, so CANONICAL and OBSERVED memory cannot silently merge.
 
-If the journal hashes are valid and the current arrays match any recognized before/after combination, recovery rolls forward to both after-images.
+## Integrity-wrapped atomic persistence
 
-If a final commit receipt already exists, recovery reuses it and records only that committed journal state was cleared. It does not create a second final commit receipt.
+The durable store wraps the complete `persistWorld(world)` payload in:
 
-If the proposed after-image is corrupt but the before-image is valid, both complete before-images are restored and `RECOVERED_ROLLBACK_CORRUPT_AFTER` is recorded.
+- generation;
+- immediate parent snapshot ID;
+- world schema;
+- canonical hash;
+- payload SHA-256;
+- deterministic snapshot ID.
 
-If the before-image is corrupt, recovery cannot establish a trustworthy source. The journal is retained, `compactionRepairRequired` becomes true, and the cell enters `REPAIR`. New compaction attempts fail closed.
+Candidate roles are:
 
-### Authority boundary
+- primary;
+- backup;
+- temp;
+- recovery-temp.
 
-Compaction changes only non-canonical memory arrays. Compaction journals, generations, receipts, and repair state are excluded from the canonical hash.
+Validation requires the envelope, payload hash, snapshot ID, world reload, world schema, and canonical hash to agree.
 
-The test suite checks the canonical hash before and after normal compaction, all four injected interruption stages, rollback, and repair-lock recovery.
+Recovery chooses the highest valid generation.
 
-## Truth and provenance boundary
+Identical highest-generation copies use stable role priority:
+
+`primary -> temp -> recovery-temp -> backup`
+
+Different valid snapshots claiming the same highest generation produce `SNAPSHOT_GENERATION_CONFLICT`.
+
+No valid candidate means `NO_VALID_SNAPSHOT`. Save does not overwrite that unresolved store.
+
+### Save ordering
+
+```text
+recover existing valid store
+-> write temp
+-> fsync temp
+-> preserve old primary as backup
+-> fsync directory
+-> rename temp to primary
+-> fsync directory
+-> verify installed primary
+```
+
+### Recovery promotion
+
+```text
+inspect all candidates
+-> select highest non-conflicting valid generation
+-> write + fsync recovery-temp
+-> rename recovery-temp to primary
+-> fsync directory
+-> verify promoted primary
+```
+
+The implementation calls file fsync and directory fsync and uses same-directory rename on the tested Ubuntu filesystem.
+
+Nine abrupt child-process exits are tested: six save stages and three recovery-promotion stages.
+
+## Truth and authority boundary
 
 Canonical truth contains world revision, actor positions, and cell physical truth state.
 
@@ -87,47 +127,73 @@ The canonical hash intentionally excludes:
 - activation and wake state;
 - specialist receipts and merge receipts;
 - handoff envelopes and guard receipts;
-- handoff scheduler jobs and scheduler receipts;
-- deferred mailboxes and deferred-delivery receipts.
+- scheduler jobs and scheduler receipts;
+- deferred mailboxes and deferred-delivery receipts;
+- atomic snapshot role, generation bookkeeping, candidate files, and persistence receipts.
 
 Canonical-event memory uses provenance class `CANONICAL`.
 
-Accepted handoff memory uses provenance class `OBSERVED` and retains handoff event ID, causal event ID, source revision, sender/recipient IDs, causal depth, and whether a matching truth-commit receipt exists.
+Accepted handoff memory uses provenance class `OBSERVED` and retains causal evidence.
 
-Compaction summary keys include provenance class, so CANONICAL and OBSERVED memory cannot silently merge.
+A persistence envelope records the canonical hash and rejects a payload whose reloaded canonical hash differs. Persistence selects among complete world snapshots; it does not create new canonical rules.
 
 ## Handoff envelope and guard
 
-Each handoff carries stable event and causal IDs, sender/recipient cell IDs, causal depth, hop limit, causal path, source revision, and bounded parameters.
+Each handoff carries stable event and causal IDs, sender/recipient IDs, causal depth, hop limit, causal path, source revision, and bounded parameters.
 
 The guard rejects missing IDs, duplicates, unknown cells, invalid hop budgets, excess depth, causal cycles, missing causal IDs, invalid/future source revisions, and repeated causal arrival at one recipient.
-
-The causal-arrival key is:
-
-`causalEventId | handoffType | recipientCellId`
 
 Invalid signals are rejected before busy-cell deferral.
 
 ## Deterministic queued scheduler
 
-The scheduler orders work by a stable key containing depth, causal ID, type, sender, recipient, and event ID.
+The scheduler orders work using a stable key containing depth, causal ID, type, sender, recipient, and event ID.
 
 Its independent bounds cover processed work, active queue size, mailbox size, deferred retries, and deferred logical TTL.
 
 Scheduler completion states include `DRAINED`, `WAITING_FOR_DEFERRED_DELIVERY`, `DEFERRED_DELIVERY_EXHAUSTED`, `BUDGET_EXHAUSTED`, and `AUTHORITY_BREACH`.
 
-Unfinished active and deferred work remains in persisted scheduler state and can resume after JSON reload.
+Unfinished active and deferred work lives inside the serialized world and therefore participates in complete atomic snapshots.
 
-## Canonical mutation witnesses
+## Recovery composition
 
-A directly invoked recipient lifecycle computes its own before/after canonical hash.
+Atomic snapshot validation calls `reloadWorld(payload)`.
 
-Scheduler-driven lifecycles compute one canonical hash before and after the drained batch and annotate lifecycle receipts with that result.
+This means one load can compose two deterministic recovery layers:
 
-Memory-compaction recovery is also tested against an unchanged canonical hash.
+1. select and validate the newest complete snapshot candidate;
+2. recover any pending non-canonical memory-compaction journal inside that snapshot.
 
-## Persistence
+The suite verifies that a snapshot containing a pending compaction reloads to the repaired memory state while preserving canonical truth.
 
-v0.01 provides JSON serialization/reload, validates snapshot shape, backfills missing non-canonical cell/scheduler/mailbox/compaction fields, recovers pending valid compactions, and preserves evidence receipts.
+## Current evidence
 
-This is not crash-atomic durable storage. Atomic file replacement, fsync behavior, process-kill testing during snapshot write, queue/mailbox/compaction transaction unification, genuine concurrent execution, and scheduler fairness remain unproven.
+GitHub Actions run `33377190670`, job `99441212943`:
+
+- Node.js v22.23.2
+- Ubuntu 24.04
+- 67 tests
+- 67 passed
+- 0 failed
+- duration `2025.432072 ms`
+
+## Persistence boundary
+
+The current result is process-exit-resilient on the tested Linux CI filesystem.
+
+It is not a universal power-loss guarantee.
+
+An abrupt exit after `AFTER_TEMP_WRITE` happened before temp-file fsync. Recovery succeeded because the temp file was present and valid after that process exit. Sudden loss of power or volatile hardware caches at that point is untested.
+
+Also unproven:
+
+- multi-writer coordination;
+- every filesystem and operating system;
+- network filesystem semantics;
+- cross-device rename;
+- storage-controller durability;
+- complete parent-chain verification;
+- one transaction spanning world mutation and persistence admission;
+- automatic repair when all candidates are invalid.
+
+See `docs/ATOMIC_PERSISTENCE.md` for the full protocol and exact claim boundary.
