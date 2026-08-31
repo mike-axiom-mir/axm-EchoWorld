@@ -231,7 +231,7 @@ async function heartbeatRecords(paths, token) {
       result: await readJson(path.join(paths.heartbeatsDir, item.fileName), RECORD_SCHEMAS.heartbeat),
     });
   }
-  return records;
+  return records.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
 
 function logicalExpiry(record, logicalField, legacyField) {
@@ -240,7 +240,7 @@ function logicalExpiry(record, logicalField, legacyField) {
 
 async function tokenStatus(paths, token, logicalNowMs) {
   const claim = await recordForToken(paths.claimsDir, 'claim', token, RECORD_SCHEMAS.claim);
-  if (!claim.valid) return { archivable: false, reason: 'INVALID_OR_MISSING_CLAIM' };
+  if (!claim.valid) return { archivable: false, reason: 'INVALID_OR_MISSING_CLAIM7 };
   const activation = await recordForToken(
     paths.activationsDir,
     'activation',
@@ -331,7 +331,7 @@ export async function archiveLeaseLedgerRecords({
       schema: 'axm.echoworld.writer-lease-ledger-archive-receipt/v0.01',
       status: 'NOTHING_TO_ARCHIVE',
       archivedTokenCount: 0,
-      retainedRecentTokens,
+      retainRecentTokens,
       highestAllocatedToken,
       archive: state.archive,
     };

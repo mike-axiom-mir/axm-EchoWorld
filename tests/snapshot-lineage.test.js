@@ -18,7 +18,7 @@ import {
   loadAtomicWorldSnapshot,
   saveAtomicWorldSnapshot,
 } from '../src/persistence/atomic-store.js';
-import { saveLeasdAtomicWorldSnapshot } from '../src/persistence/leased-checkpoint.js';
+import { saveLeasedAtomicWorldSnapshot } from '../src/persistence/leased-checkpoint.js';
 import {
   inspectSnapshotLineage,
   snapshotLineagePaths,
@@ -75,7 +75,7 @@ test('three atomic generations retain and verify their complete parent chain', a
   assert.deepEqual(
     loaded.lineage.chain.map((record) => record.snapshotId),
     [first.snapshotId, second.snapshotId, third.snapshotId],
-   );
+  );
 });
 
 test('higher fencing-token takeover continues one verified snapshot lineage', async (t) => {
@@ -174,7 +174,7 @@ test('lineage verification rejects fencing regression and unfenced gaps', async 
     nowMs: 2_000,
     leaseDurationMs: 10_000,
   });
-  const first = await saveLeasdAtomicWorldSnapshot({
+  const first = await saveLeasedAtomicWorldSnapshot({
     directory,
     world: createWorld(),
     lease,
@@ -194,7 +194,7 @@ test('lineage verification rejects fencing regression and unfenced gaps', async 
   assert.throws(
     () => verifySnapshotLineageRecords(regression, { headEnvelope: head }),
     expectCode('SNAPSHOT_FENCING_REGRESSION'),
-   );
+  );
 
   const gap = structuredClone(inspection.records);
   gap[1].fencingToken = null;
@@ -214,7 +214,7 @@ test('rollback creates a new branch while the selected branch remains fully veri
   const oldThird = await saveAtomicWorldSnapshot({ directory, world: worldThree });
 
   const paths = atomicSnapshotPaths(directory);
-  await writeFile(paths.primary, '{"corrupe":', 'utf8');
+  await writeFile(paths.primary, '{"corrupt":', 'utf8');
   const rolledBack = await loadAtomicWorldSnapshot({ directory });
   assert.equal(rolledBack.generation, 2);
   assert.equal(rolledBack.snapshotId, second.snapshotId);
