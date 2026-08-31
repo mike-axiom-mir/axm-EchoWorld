@@ -1,3 +1,15 @@
+import {
+  compactWorkingMemory,
+  recoverCellMemoryCompaction,
+} from './compaction.js';
+
+export {
+  compactWorkingMemory,
+  MEMORY_COMPACTION_INTERRUPT_POINTS,
+  recoverCellMemoryCompaction,
+  recoverPendingMemoryCompactions,
+} from './compaction.js';
+
 function scoreEvent(event) {
   let score = 0;
   if (event.structuralChange) score += 5;
@@ -17,62 +29,13 @@ function scoreObservedHandoff(handoff) {
   return score;
 }
 
-function compactWorking(cell) {
-  const { working, compressed } = cell.memory;
-  const budget = cell.memoryBudget.working;
-  if (working.length <= budget) return null;
-
-  const overflow = working.splice(0, working.length - budget);
-  const groups = new Map();
-  for (const item of overflow) {
-    const key = `${item.provenanceClass ?? 'UNKNOWN'}|${item.eventClass}|${item.actorId ?? ''}`;
-    const existing = groups.get(key) ?? {
-      provenanceClass: item.provenanceClass ?? 'UNKNOWN',
-      eventClass: item.eventClass,
-      actorId: item.actorId ?? null,
-      count: 0,
-      firstRevision: item.revision,
-      lastRevision: item.revision,
-    };
-    existing.count += 1;
-    existing.firstRevision = Math.min(existing.firstRevision, item.revision);
-    existing.lastRevision = Math.max(existing.lastRevision, item.revision);
-    groups.set(key, existing);
+function retainMemory(world, cell, memoryRecord, importance, lineageRef) {
+  if (cell.memory.pendingCompaction) recoverCellMemoryCompaction(world, cell);
+  if (cell.memory.pendingCompaction || cell.memory.compactionRepairRequired) {
+    throw new Error('MEMORY_COMPACTION_REPAIR_REQUIRED');
   }
 
-  for (const summary of groups.values()) {
-    const existing = compressed.find(
-      (item) => (
-        item.provenanceClass === summary.provenanceClass
-        && item.eventClass === summary.eventClass
-        && item.actorId === summary.actorId
-      ),
-    );
-    if (existing) {
-      existing.count += summary.count;
-      existing.firstRevision = Math.min(existing.firstRevision, summary.firstRevision);
-      existing.lastRevision = Math.max(existing.lastRevision, summary.lastRevision);
-    } else {
-      compressed.push(summary);
-    }
-  }
-
-  if (compressed.length > cell.memoryBudget.compressed) {
-    compressed.splice(0, compressed.length - cell.memoryBudget.compressed);
-  }
-
-  return {
-    schema: 'axm.echoworld.memory-compaction-receipt/v0.01',
-    cellId: cell.cellId,
-    compactedCount: overflow.length,
-    compressedCount: compressed.length,
-  };
-}
-
-function retainMemory(cell, memoryRecord, importance, lineageRef) {
-  if (importance >= 3) {
-    cell.memory.working.push(memoryRecord);
-  }
+  if (importance >= 3) cell.memory.working.push(memoryRecord);
   if (importance >= 5) {
     cell.memory.episodic.push(memoryRecord);
     if (cell.memory.episodic.length > cell.memoryBudget.episodic) {
@@ -86,7 +49,7 @@ function retainMemory(cell, memoryRecord, importance, lineageRef) {
     }
   }
 
-  return compactWorking(cell);
+  return compactWorkingMemory(world, cell);
 }
 
 export function recordCommittedMemory(world, cell, event) {
@@ -102,7 +65,7 @@ export function recordCommittedMemory(world, cell, event) {
     provenanceClass: 'CANONICAL',
   };
 
-  const compaction = retainMemory(cell, memoryRecord, importance, event.eventId);
+  const compaction = retainMemory(world, cell, memoryRecord, importance, event.eventId);
   const receipt = {
     schema: 'axm.echoworld.memory-receipt/v0.01',
     cellId: cell.cellId,
@@ -144,6 +107,7 @@ export function recordObservedHandoffMemory(
   };
 
   const compaction = retainMemory(
+    world,
     cell,
     memoryRecord,
     importance,
