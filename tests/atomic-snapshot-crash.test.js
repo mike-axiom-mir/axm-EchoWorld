@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { canonicalHash, createWorld } from '../src/core/state.js';
+import { processEvent } from '../src/core/world.js';
 import { compactWorkingMemory } from '../src/memory/compaction.js';
 import {
   inspectAtomicSnapshotStore,
@@ -19,6 +20,19 @@ async function makeStoreDir(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'axm-echoworld-atomic-crash-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   return directory;
+}
+
+function advanceWorld(world, eventId) {
+  const result = processEvent(world, {
+    eventId,
+    type: 'MOVE',
+    actorId: 'A',
+    x: 2,
+    y: 1,
+    rare: true,
+  });
+  assert.equal(result.committed, true);
+  return world;
 }
 
 function seedPendingCompaction(world) {
@@ -62,6 +76,56 @@ for (const crashStage of crashStages) {
       child.status,
       86,
       `worker did not exit at ${crashStage}: stdout=${child.stdout} stderr=${child.stderr}`,
+    );
+
+    const recovered = await recoverAtomicWorldSnapshot({ directory });
+    assert.equal(recovered.generation, 2);
+    assert.equal(recovered.world.actors.A.x, 2);
+    assert.equal(recovered.world.revision, 1);
+    assert.equal(canonicalHash(recovered.world), recovered.canonicalHash);
+
+    const inspection = await inspectAtomicSnapshotStore({ directory });
+    assert.equal(inspection.selected.role, 'primary');
+    assert.equal(inspection.selected.envelope.generation, 2);
+  });
+}
+
+const recoveryCrashStages = [
+  'AFTER_RECOVERY_TEMP_FSYNC',
+  'AFTER_RECOVERY_PRIMARY_RENAME',
+  'AFTER_RECOVERY_DIRECTORY_FSYNC',
+];
+
+for (const recoveryStage of recoveryCrashStages) {
+  test(`abrupt process exit at ${recoveryStage} leaves recovery promotion restartable`, async (t) => {
+    const directory = await makeStoreDir(t);
+    await saveAtomicWorldSnapshot({ directory, world: createWorld() });
+    const nextWorld = advanceWorld(createWorld(), `RECOVERY_${recoveryStage}`);
+
+    await assert.rejects(
+      () => saveAtomicWorldSnapshot({
+        directory,
+        world: nextWorld,
+        onStage(stage) {
+          if (stage === 'AFTER_TEMP_FSYNC') throw new Error('leave valid recovery temp candidate');
+        },
+      }),
+      /leave valid recovery temp candidate/,
+    );
+
+    const workerPath = fileURLToPath(
+      new URL('./fixtures/atomic-recovery-crash-worker.js', import.meta.url),
+    );
+    const child = spawnSync(
+      process.execPath,
+      [workerPath, directory, 'world', recoveryStage],
+      { encoding: 'utf8' },
+    );
+
+    assert.equal(
+      child.status,
+      86,
+      `recovery worker did not exit at ${recoveryStage}: stdout=${child.stdout} stderr=${child.stderr}`,
     );
 
     const recovered = await recoverAtomicWorldSnapshot({ directory });
