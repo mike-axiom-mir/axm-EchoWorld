@@ -2,6 +2,7 @@ function ensureHandoffState(world) {
   world.handoffState ??= {};
   world.handoffState.seenEventIds ??= [];
   world.handoffState.seenArrivalKeys ??= [];
+  world.handoffState.deferredMailboxes ??= {};
   world.receipts.handoffs ??= [];
   world.receipts.handoffGuards ??= [];
   return world.handoffState;
@@ -78,7 +79,7 @@ export function neighborHandoffs(world, originCell, event, { hopLimit = 2 } = {}
   return handoffs;
 }
 
-export function acceptHandoff(world, handoff) {
+export function inspectHandoff(world, handoff) {
   const state = ensureHandoffState(world);
   const arrivalKey = handoffArrivalKey(handoff);
   let reason = null;
@@ -100,26 +101,35 @@ export function acceptHandoff(world, handoff) {
   } else if (handoff.sourceRevision > world.revision) reason = 'FUTURE_SOURCE_REVISION';
   else if (state.seenArrivalKeys.includes(arrivalKey)) reason = 'DUPLICATE_CAUSAL_ARRIVAL';
 
-  const accepted = reason === null;
-  if (accepted) {
-    state.seenEventIds.push(handoff.eventId);
-    state.seenArrivalKeys.push(arrivalKey);
-    state.seenEventIds.sort();
-    state.seenArrivalKeys.sort();
-  }
-
-  const receipt = {
-    schema: 'axm.echoworld.handoff-guard-receipt/v0.01',
+  return {
+    schema: 'axm.echoworld.handoff-guard-inspection/v0.01',
     eventId: handoff?.eventId ?? null,
     causalEventId: handoff?.causalEventId ?? null,
     arrivalKey,
-    accepted,
+    accepted: reason === null,
     reason,
     causalDepth: handoff?.causalDepth ?? null,
     hopLimit: handoff?.hopLimit ?? null,
     sourceRevision: handoff?.sourceRevision ?? null,
     senderCellId: handoff?.senderCellId ?? null,
     recipientCellId: handoff?.recipientCellId ?? null,
+  };
+}
+
+export function acceptHandoff(world, handoff) {
+  const state = ensureHandoffState(world);
+  const inspection = inspectHandoff(world, handoff);
+
+  if (inspection.accepted) {
+    state.seenEventIds.push(handoff.eventId);
+    state.seenArrivalKeys.push(inspection.arrivalKey);
+    state.seenEventIds.sort();
+    state.seenArrivalKeys.sort();
+  }
+
+  const receipt = {
+    ...inspection,
+    schema: 'axm.echoworld.handoff-guard-receipt/v0.01',
   };
   world.receipts.handoffGuards.push(receipt);
   return receipt;

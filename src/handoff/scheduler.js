@@ -7,12 +7,22 @@ import {
   deriveNextHandoffs,
   handoffArrivalKey,
   handoffOrderKey,
+  inspectHandoff,
 } from './events.js';
 import { processAcceptedHandoff } from './arrival.js';
+import {
+  DEFERRED_DELIVERY_DEFAULTS,
+  deferBusyHandoff,
+  deferredArrivalKeySet,
+  deferredEventIdSet,
+  pendingDeferredCount,
+  sweepDeferredMailboxes,
+} from './mailbox.js';
 
 const DEFAULT_LIMITS = Object.freeze({
   maxProcessed: 4096,
   maxQueueSize: 4096,
+  ...DEFERRED_DELIVERY_DEFAULTS,
 });
 
 function requirePositiveInteger(value, name) {
@@ -26,7 +36,9 @@ function ensureSchedulerState(world) {
   world.handoffState.seenEventIds ??= [];
   world.handoffState.seenArrivalKeys ??= [];
   world.handoffState.schedulerJobs ??= {};
+  world.handoffState.deferredMailboxes ??= {};
   world.receipts.handoffSchedules ??= [];
+  world.receipts.deferredDeliveries ??= [];
   return world.handoffState.schedulerJobs;
 }
 
@@ -41,22 +53,30 @@ function normalizedFinishOrder(value) {
 function schedulerId(
   world,
   initialHandoffs,
-  maxQueueSize,
-  processArrivals,
-  arrivalSpecialistFinishOrder,
+  {
+    maxQueueSize,
+    processArrivals,
+    arrivalSpecialistFinishOrder,
+    maxMailboxSize,
+    maxDeferredRetries,
+    deferredTtlEpochs,
+  },
 ) {
   const identity = {
     revision: world.revision,
     maxQueueSize,
     processArrivals,
     arrivalSpecialistFinishOrder,
+    maxMailboxSize,
+    maxDeferredRetries,
+    deferredTtlEpochs,
     handoffs: [...initialHandoffs].sort(compareHandoffs).map((handoff) => handoffOrderKey(handoff)),
   };
   return `HS_${createHash('sha256').update(JSON.stringify(identity)).digest('hex').slice(0, 16)}`;
 }
 
-function incrementReason(reasons, reason) {
-  reasons[reason] = (reasons[reason] ?? 0) + 1;
+function incrementReason(reasons, reason, count = 1) {
+  reasons[reason] = (reasons[reason] ?? 0) + count;
 }
 
 function stableReasons(reasons) {
@@ -77,9 +97,19 @@ function makeRunCounters() {
     memoryWriteCount: 0,
     sourceVerifiedCount: 0,
     sourceUnverifiedCount: 0,
+    deferredCount: 0,
+    deferredReleasedCount: 0,
+    deferredRetryCount: 0,
+    deferredExpiredCount: 0,
+    deferredRetryExhaustedCount: 0,
+    deferredCancelledSeenCount: 0,
+    deferredReleaseBlockedCount: 0,
+    droppedByMailboxBudget: 0,
+    deferredDuplicateCount: 0,
     prequeueReasons: {},
     guardRejectionReasons: {},
     lifecycleRejectionReasons: {},
+    deferredDeliveryReasons: {},
   };
 }
 
@@ -97,6 +127,15 @@ function addRunToJob(job, run) {
     'memoryWriteCount',
     'sourceVerifiedCount',
     'sourceUnverifiedCount',
+    'deferredCount',
+    'deferredReleasedCount',
+    'deferredRetryCount',
+    'deferredExpiredCount',
+    'deferredRetryExhaustedCount',
+    'deferredCancelledSeenCount',
+    'deferredReleaseBlockedCount',
+    'droppedByMailboxBudget',
+    'deferredDuplicateCount',
   ]) {
     job[key] += run[key];
   }
@@ -110,11 +149,16 @@ function addRunToJob(job, run) {
   for (const [reason, count] of Object.entries(run.lifecycleRejectionReasons)) {
     job.lifecycleRejectionReasons[reason] = (job.lifecycleRejectionReasons[reason] ?? 0) + count;
   }
+  for (const [reason, count] of Object.entries(run.deferredDeliveryReasons)) {
+    job.deferredDeliveryReasons[reason] = (job.deferredDeliveryReasons[reason] ?? 0) + count;
+  }
 }
 
 function enqueueIntoJob(world, job, candidates, run) {
   const queuedEventIds = new Set(job.queue.map((handoff) => handoff.eventId));
   const queuedArrivalKeys = new Set(job.queue.map(handoffArrivalKey));
+  const deferredEventIds = deferredEventIdSet(world);
+  const deferredArrivalKeys = deferredArrivalKeySet(world);
   const ordered = [...candidates].sort(compareHandoffs);
 
   for (const candidate of ordered) {
@@ -125,10 +169,14 @@ function enqueueIntoJob(world, job, candidates, run) {
       reason = 'ALREADY_SEEN_EVENT';
     } else if (queuedEventIds.has(candidate?.eventId)) {
       reason = 'DUPLICATE_QUEUED_EVENT';
+    } else if (deferredEventIds.has(candidate?.eventId)) {
+      reason = 'ALREADY_DEFERRED_EVENT';
     } else if (world.handoffState.seenArrivalKeys.includes(arrivalKey)) {
       reason = 'ALREADY_SEEN_CAUSAL_ARRIVAL';
     } else if (queuedArrivalKeys.has(arrivalKey)) {
       reason = 'DUPLICATE_QUEUED_CAUSAL_ARRIVAL';
+    } else if (deferredArrivalKeys.has(arrivalKey)) {
+      reason = 'ALREADY_DEFERRED_CAUSAL_ARRIVAL';
     } else if (job.queue.length >= job.maxQueueSize) {
       reason = 'QUEUE_BUDGET_EXCEEDED';
     }
@@ -149,6 +197,32 @@ function enqueueIntoJob(world, job, candidates, run) {
   job.maxQueueObserved = Math.max(job.maxQueueObserved, job.queue.length);
 }
 
+function applyDeferredSweep(run, sweep) {
+  run.deferredReleasedCount += sweep.stats.releasedCount;
+  run.deferredRetryCount += sweep.stats.retryCount;
+  run.deferredExpiredCount += sweep.stats.expiredCount;
+  run.deferredRetryExhaustedCount += sweep.stats.retryExhaustedCount;
+  run.deferredCancelledSeenCount += sweep.stats.cancelledSeenCount;
+  run.deferredReleaseBlockedCount += sweep.stats.releaseBlockedCount;
+
+  for (const [reason, count] of [
+    ['RELEASED', sweep.stats.releasedCount],
+    ['RETRY_DEFERRED', sweep.stats.retryCount],
+    ['EXPIRED', sweep.stats.expiredCount],
+    ['RETRY_EXHAUSTED', sweep.stats.retryExhaustedCount],
+    ['CANCELLED_ALREADY_SEEN', sweep.stats.cancelledSeenCount],
+    ['RELEASE_BLOCKED_QUEUE_CAPACITY', sweep.stats.releaseBlockedCount],
+  ]) {
+    if (count > 0) incrementReason(run.deferredDeliveryReasons, reason, count);
+  }
+}
+
+function addReleasedToQueue(job, released) {
+  job.queue.push(...released);
+  job.queue.sort(compareHandoffs);
+  job.maxQueueObserved = Math.max(job.maxQueueObserved, job.queue.length);
+}
+
 export function startHandoffSchedule(
   world,
   initialHandoffs,
@@ -156,9 +230,15 @@ export function startHandoffSchedule(
     maxQueueSize = DEFAULT_LIMITS.maxQueueSize,
     processArrivals = true,
     arrivalSpecialistFinishOrder = null,
+    maxMailboxSize = DEFAULT_LIMITS.maxMailboxSize,
+    maxDeferredRetries = DEFAULT_LIMITS.maxDeferredRetries,
+    deferredTtlEpochs = DEFAULT_LIMITS.deferredTtlEpochs,
   } = {},
 ) {
   requirePositiveInteger(maxQueueSize, 'maxQueueSize');
+  requirePositiveInteger(maxMailboxSize, 'maxMailboxSize');
+  requirePositiveInteger(maxDeferredRetries, 'maxDeferredRetries');
+  requirePositiveInteger(deferredTtlEpochs, 'deferredTtlEpochs');
   if (!Array.isArray(initialHandoffs)) {
     throw new TypeError('initialHandoffs must be an array.');
   }
@@ -168,7 +248,15 @@ export function startHandoffSchedule(
   const finishOrder = normalizedFinishOrder(arrivalSpecialistFinishOrder);
 
   const jobs = ensureSchedulerState(world);
-  const id = schedulerId(world, initialHandoffs, maxQueueSize, processArrivals, finishOrder);
+  const identityOptions = {
+    maxQueueSize,
+    processArrivals,
+    arrivalSpecialistFinishOrder: finishOrder,
+    maxMailboxSize,
+    maxDeferredRetries,
+    deferredTtlEpochs,
+  };
+  const id = schedulerId(world, initialHandoffs, identityOptions);
   if (jobs[id]) return jobs[id];
 
   const job = {
@@ -179,6 +267,10 @@ export function startHandoffSchedule(
     maxQueueSize,
     processArrivals,
     arrivalSpecialistFinishOrder: finishOrder,
+    maxMailboxSize,
+    maxDeferredRetries,
+    deferredTtlEpochs,
+    deferredEpoch: 0,
     initialCount: initialHandoffs.length,
     queue: [],
     runCount: 0,
@@ -194,10 +286,20 @@ export function startHandoffSchedule(
     memoryWriteCount: 0,
     sourceVerifiedCount: 0,
     sourceUnverifiedCount: 0,
+    deferredCount: 0,
+    deferredReleasedCount: 0,
+    deferredRetryCount: 0,
+    deferredExpiredCount: 0,
+    deferredRetryExhaustedCount: 0,
+    deferredCancelledSeenCount: 0,
+    deferredReleaseBlockedCount: 0,
+    droppedByMailboxBudget: 0,
+    deferredDuplicateCount: 0,
     maxQueueObserved: 0,
     prequeueReasons: {},
     guardRejectionReasons: {},
     lifecycleRejectionReasons: {},
+    deferredDeliveryReasons: {},
     canonicalHashAtStart: canonicalHash(world),
   };
   jobs[id] = job;
@@ -220,11 +322,41 @@ export function drainHandoffSchedule(
   if (!job) throw new Error('UNKNOWN_HANDOFF_SCHEDULE');
 
   const run = makeRunCounters();
+  job.deferredEpoch += 1;
+
+  const sweep = sweepDeferredMailboxes(world, job, {
+    releaseCapacity: Math.max(0, job.maxQueueSize - job.queue.length),
+  });
+  applyDeferredSweep(run, sweep);
+  addReleasedToQueue(job, sweep.released);
+
   const lifecycleReceiptStart = world.receipts.cellLifecycles?.length ?? 0;
 
   while (job.queue.length > 0 && run.processedCount < maxProcessed) {
     const handoff = job.queue.shift();
     run.processedCount += 1;
+
+    const inspection = inspectHandoff(world, handoff);
+    if (!inspection.accepted) {
+      const guard = acceptHandoff(world, handoff);
+      run.rejectedCount += 1;
+      incrementReason(run.guardRejectionReasons, guard.reason ?? 'UNKNOWN_REJECTION');
+      continue;
+    }
+
+    const recipient = world.cells[handoff.recipientCellId];
+    if (job.processArrivals && recipient.wakeState !== 'DORMANT') {
+      const deferral = deferBusyHandoff(world, job, handoff);
+      incrementReason(run.deferredDeliveryReasons, deferral.status);
+      if (deferral.deferred) {
+        run.deferredCount += 1;
+      } else if (deferral.status === 'MAILBOX_BUDGET_EXCEEDED') {
+        run.droppedByMailboxBudget += 1;
+      } else {
+        run.deferredDuplicateCount += 1;
+      }
+      continue;
+    }
 
     const guard = acceptHandoff(world, handoff);
     if (!guard.accepted) {
@@ -278,60 +410,103 @@ export function drainHandoffSchedule(
     }
   }
 
-  const exhausted = job.queue.length > 0 || job.droppedByQueueBudget > 0;
+  const pendingDeferred = pendingDeferredCount(world, job.schedulerId);
+  const queueBudgetFailure = (
+    job.queue.length > 0
+    || job.droppedByQueueBudget > 0
+    || job.droppedByMailboxBudget > 0
+  );
+  const deferredPolicyFailure = (
+    job.deferredExpiredCount > 0
+    || job.deferredRetryExhaustedCount > 0
+  );
+
   job.status = canonicalMutationApplied
     ? 'AUTHORITY_BREACH'
-    : exhausted
+    : queueBudgetFailure
       ? 'BUDGET_EXHAUSTED'
-      : 'DRAINED';
+      : deferredPolicyFailure
+        ? 'DEFERRED_DELIVERY_EXHAUSTED'
+        : pendingDeferred > 0
+          ? 'WAITING_FOR_DEFERRED_DELIVERY'
+          : 'DRAINED';
+
+  const runView = {
+    processedCount: run.processedCount,
+    acceptedCount: run.acceptedCount,
+    rejectedCount: run.rejectedCount,
+    generatedCount: run.generatedCount,
+    coalescedBeforeQueue: run.coalescedBeforeQueue,
+    droppedByQueueBudget: run.droppedByQueueBudget,
+    lifecycleProcessedCount: run.lifecycleProcessedCount,
+    lifecycleRejectedCount: run.lifecycleRejectedCount,
+    perceptionCount: run.perceptionCount,
+    memoryWriteCount: run.memoryWriteCount,
+    sourceVerifiedCount: run.sourceVerifiedCount,
+    sourceUnverifiedCount: run.sourceUnverifiedCount,
+    deferredCount: run.deferredCount,
+    deferredReleasedCount: run.deferredReleasedCount,
+    deferredRetryCount: run.deferredRetryCount,
+    deferredExpiredCount: run.deferredExpiredCount,
+    deferredRetryExhaustedCount: run.deferredRetryExhaustedCount,
+    deferredCancelledSeenCount: run.deferredCancelledSeenCount,
+    deferredReleaseBlockedCount: run.deferredReleaseBlockedCount,
+    droppedByMailboxBudget: run.droppedByMailboxBudget,
+    deferredDuplicateCount: run.deferredDuplicateCount,
+    prequeueReasons: stableReasons(run.prequeueReasons),
+    guardRejectionReasons: stableReasons(run.guardRejectionReasons),
+    lifecycleRejectionReasons: stableReasons(run.lifecycleRejectionReasons),
+    deferredDeliveryReasons: stableReasons(run.deferredDeliveryReasons),
+  };
+
+  const cumulativeView = {
+    processedCount: job.processedCount,
+    acceptedCount: job.acceptedCount,
+    rejectedCount: job.rejectedCount,
+    generatedCount: job.generatedCount,
+    coalescedBeforeQueue: job.coalescedBeforeQueue,
+    droppedByQueueBudget: job.droppedByQueueBudget,
+    lifecycleProcessedCount: job.lifecycleProcessedCount,
+    lifecycleRejectedCount: job.lifecycleRejectedCount,
+    perceptionCount: job.perceptionCount,
+    memoryWriteCount: job.memoryWriteCount,
+    sourceVerifiedCount: job.sourceVerifiedCount,
+    sourceUnverifiedCount: job.sourceUnverifiedCount,
+    deferredCount: job.deferredCount,
+    deferredReleasedCount: job.deferredReleasedCount,
+    deferredRetryCount: job.deferredRetryCount,
+    deferredExpiredCount: job.deferredExpiredCount,
+    deferredRetryExhaustedCount: job.deferredRetryExhaustedCount,
+    deferredCancelledSeenCount: job.deferredCancelledSeenCount,
+    deferredReleaseBlockedCount: job.deferredReleaseBlockedCount,
+    droppedByMailboxBudget: job.droppedByMailboxBudget,
+    deferredDuplicateCount: job.deferredDuplicateCount,
+    prequeueReasons: stableReasons(job.prequeueReasons),
+    guardRejectionReasons: stableReasons(job.guardRejectionReasons),
+    lifecycleRejectionReasons: stableReasons(job.lifecycleRejectionReasons),
+    deferredDeliveryReasons: stableReasons(job.deferredDeliveryReasons),
+  };
 
   const receipt = {
-    schema: 'axm.echoworld.handoff-scheduler-receipt/v0.01',
+    schema: 'axm.echoworld.handoff-scheduler-receipt/v0.02',
     schedulerId: job.schedulerId,
     baseRevision: job.baseRevision,
     runIndex: job.runCount,
     status: job.status,
     processArrivals: job.processArrivals,
+    deferredEpoch: job.deferredEpoch,
     limits: {
       maxProcessed,
       maxQueueSize: job.maxQueueSize,
+      maxMailboxSize: job.maxMailboxSize,
+      maxDeferredRetries: job.maxDeferredRetries,
+      deferredTtlEpochs: job.deferredTtlEpochs,
     },
     initialCount: job.initialCount,
-    run: {
-      processedCount: run.processedCount,
-      acceptedCount: run.acceptedCount,
-      rejectedCount: run.rejectedCount,
-      generatedCount: run.generatedCount,
-      coalescedBeforeQueue: run.coalescedBeforeQueue,
-      droppedByQueueBudget: run.droppedByQueueBudget,
-      lifecycleProcessedCount: run.lifecycleProcessedCount,
-      lifecycleRejectedCount: run.lifecycleRejectedCount,
-      perceptionCount: run.perceptionCount,
-      memoryWriteCount: run.memoryWriteCount,
-      sourceVerifiedCount: run.sourceVerifiedCount,
-      sourceUnverifiedCount: run.sourceUnverifiedCount,
-      prequeueReasons: stableReasons(run.prequeueReasons),
-      guardRejectionReasons: stableReasons(run.guardRejectionReasons),
-      lifecycleRejectionReasons: stableReasons(run.lifecycleRejectionReasons),
-    },
-    cumulative: {
-      processedCount: job.processedCount,
-      acceptedCount: job.acceptedCount,
-      rejectedCount: job.rejectedCount,
-      generatedCount: job.generatedCount,
-      coalescedBeforeQueue: job.coalescedBeforeQueue,
-      droppedByQueueBudget: job.droppedByQueueBudget,
-      lifecycleProcessedCount: job.lifecycleProcessedCount,
-      lifecycleRejectedCount: job.lifecycleRejectedCount,
-      perceptionCount: job.perceptionCount,
-      memoryWriteCount: job.memoryWriteCount,
-      sourceVerifiedCount: job.sourceVerifiedCount,
-      sourceUnverifiedCount: job.sourceUnverifiedCount,
-      prequeueReasons: stableReasons(job.prequeueReasons),
-      guardRejectionReasons: stableReasons(job.guardRejectionReasons),
-      lifecycleRejectionReasons: stableReasons(job.lifecycleRejectionReasons),
-    },
+    run: runView,
+    cumulative: cumulativeView,
     remainingQueueCount: job.queue.length,
+    pendingDeferredCount: pendingDeferred,
     maxQueueObserved: job.maxQueueObserved,
     canonicalHashBefore: job.canonicalHashAtStart,
     canonicalHashAfter,
@@ -350,12 +525,18 @@ export function runHandoffScheduler(
     maxQueueSize = DEFAULT_LIMITS.maxQueueSize,
     processArrivals = true,
     arrivalSpecialistFinishOrder = null,
+    maxMailboxSize = DEFAULT_LIMITS.maxMailboxSize,
+    maxDeferredRetries = DEFAULT_LIMITS.maxDeferredRetries,
+    deferredTtlEpochs = DEFAULT_LIMITS.deferredTtlEpochs,
   } = {},
 ) {
   const job = startHandoffSchedule(world, initialHandoffs, {
     maxQueueSize,
     processArrivals,
     arrivalSpecialistFinishOrder,
+    maxMailboxSize,
+    maxDeferredRetries,
+    deferredTtlEpochs,
   });
   return drainHandoffSchedule(world, job.schedulerId, { maxProcessed });
 }

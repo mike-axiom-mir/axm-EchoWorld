@@ -7,6 +7,12 @@ export const MEMORY_BUDGET = Object.freeze({
   lineageRefs: 16,
 });
 
+const DEFERRED_BACKFILL_DEFAULTS = Object.freeze({
+  maxMailboxSize: 8,
+  maxDeferredRetries: 3,
+  deferredTtlEpochs: 8,
+});
+
 export function cellId(x, y) {
   return `C_${x}_${y}`;
 }
@@ -68,6 +74,7 @@ export function createWorld({ width = 16, height = 16, memoryEnabled = true } = 
       seenEventIds: [],
       seenArrivalKeys: [],
       schedulerJobs: {},
+      deferredMailboxes: {},
     },
     receipts: {
       truth: [],
@@ -79,6 +86,7 @@ export function createWorld({ width = 16, height = 16, memoryEnabled = true } = 
       handoffSchedules: [],
       perceptions: [],
       cellLifecycles: [],
+      deferredDeliveries: [],
     },
   };
 
@@ -161,6 +169,41 @@ function backfillCell(cell) {
   cell.lastActiveRevision ??= 0;
 }
 
+function backfillSchedulerJob(job) {
+  job.queue ??= [];
+  job.processArrivals ??= true;
+  job.maxMailboxSize ??= DEFERRED_BACKFILL_DEFAULTS.maxMailboxSize;
+  job.maxDeferredRetries ??= DEFERRED_BACKFILL_DEFAULTS.maxDeferredRetries;
+  job.deferredTtlEpochs ??= DEFERRED_BACKFILL_DEFAULTS.deferredTtlEpochs;
+  job.deferredEpoch ??= 0;
+  job.deferredCount ??= 0;
+  job.deferredReleasedCount ??= 0;
+  job.deferredRetryCount ??= 0;
+  job.deferredExpiredCount ??= 0;
+  job.deferredRetryExhaustedCount ??= 0;
+  job.deferredCancelledSeenCount ??= 0;
+  job.deferredReleaseBlockedCount ??= 0;
+  job.droppedByMailboxBudget ??= 0;
+  job.deferredDuplicateCount ??= 0;
+  job.deferredDeliveryReasons ??= {};
+}
+
+function backfillDeferredMailboxes(world) {
+  const mailboxes = world.handoffState.deferredMailboxes;
+  for (const cellId of Object.keys(mailboxes)) {
+    if (!Array.isArray(mailboxes[cellId])) {
+      mailboxes[cellId] = [];
+      continue;
+    }
+    for (const entry of mailboxes[cellId]) {
+      entry.retryCount ??= 0;
+      entry.maxRetries ??= DEFERRED_BACKFILL_DEFAULTS.maxDeferredRetries;
+      entry.deferredAtEpoch ??= 0;
+      entry.expiresAtEpoch ??= entry.deferredAtEpoch + DEFERRED_BACKFILL_DEFAULTS.deferredTtlEpochs;
+    }
+  }
+}
+
 export function reloadWorld(serialized) {
   const world = JSON.parse(serialized);
   if (world?.schema !== 'axm.echoworld/v0.01' || !world.cells || !world.actors) {
@@ -173,6 +216,9 @@ export function reloadWorld(serialized) {
   world.handoffState.seenEventIds ??= [];
   world.handoffState.seenArrivalKeys ??= [];
   world.handoffState.schedulerJobs ??= {};
+  world.handoffState.deferredMailboxes ??= {};
+  for (const job of Object.values(world.handoffState.schedulerJobs)) backfillSchedulerJob(job);
+  backfillDeferredMailboxes(world);
 
   world.receipts ??= {};
   world.receipts.truth ??= [];
@@ -184,6 +230,7 @@ export function reloadWorld(serialized) {
   world.receipts.handoffSchedules ??= [];
   world.receipts.perceptions ??= [];
   world.receipts.cellLifecycles ??= [];
+  world.receipts.deferredDeliveries ??= [];
 
   return world;
 }
