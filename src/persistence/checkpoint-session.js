@@ -1,4 +1,4 @@
-import { persistWorld } from '../core/state.js';
+import { persistWorld, reloadWorld } from '../core/state.js';
 import { AtomicSnapshotError, sha256 } from './atomic-types.js';
 import {
   createCheckpointAdmission,
@@ -37,6 +37,7 @@ function sessionIdentity(session) {
     baseGeneration: session.baseGeneration,
     baseSnapshotId: session.baseSnapshotId,
     sourcePayloadHash: session.sourcePayloadHash,
+    snapshotPayloadHash: session.snapshotPayloadHash,
     worldRevision: session.worldRevision,
     operationalHash: session.operationalHash,
   });
@@ -64,7 +65,9 @@ export function createImmutableCheckpointSession({
 
   const sourcePayload = persistWorld(world);
   const sourcePayloadHash = sha256(sourcePayload);
-  const snapshotWorld = JSON.parse(sourcePayload);
+  const snapshotWorld = reloadWorld(sourcePayload, { recoverMemoryCompactions: false });
+  const snapshotPayload = persistWorld(snapshotWorld);
+  const snapshotPayloadHash = sha256(snapshotPayload);
   const barrier = inspectCheckpointBarrier(snapshotWorld, { requireQuiescent });
   if (!barrier.admitted) {
     throw new AtomicSnapshotError(
@@ -85,6 +88,7 @@ export function createImmutableCheckpointSession({
     baseGeneration,
     baseSnapshotId,
     sourcePayloadHash,
+    snapshotPayloadHash,
     worldRevision: snapshotWorld.revision,
     operationalHash: barrier.operationalHash,
   };
@@ -98,7 +102,7 @@ export function createImmutableCheckpointSession({
     admittedLogicalMs,
     clockObservationId,
     checkpointSessionId: sessionId,
-    sourcePayloadHash,
+    sourcePayloadHash: snapshotPayloadHash,
     requireQuiescent,
   });
 
@@ -107,7 +111,7 @@ export function createImmutableCheckpointSession({
     sessionId,
     checkpoint,
     checkpointBarrier: barrier,
-    snapshotPayload: sourcePayload,
+    snapshotPayload,
     snapshotWorld,
   };
   const expectedSessionId = `CPS_${sha256(JSON.stringify(sessionIdentity(session))).slice(0, 24)}`;
