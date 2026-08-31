@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { recoverPendingMemoryCompactions } from '../memory/compaction.js';
+
 export const MEMORY_BUDGET = Object.freeze({
   working: 16,
   episodic: 8,
@@ -34,6 +36,10 @@ export function createCell(x, y) {
       episodic: [],
       compressed: [],
       lineageRefs: [],
+      compactionGeneration: 0,
+      pendingCompaction: null,
+      lastCompactionId: null,
+      compactionRepairRequired: false,
     },
     memoryBudget: { ...MEMORY_BUDGET },
     wakeState: 'DORMANT',
@@ -79,6 +85,7 @@ export function createWorld({ width = 16, height = 16, memoryEnabled = true } = 
     receipts: {
       truth: [],
       memory: [],
+      memoryCompactions: [],
       specialists: [],
       specialistMerges: [],
       handoffs: [],
@@ -159,6 +166,10 @@ function backfillCell(cell) {
   cell.memory.episodic ??= [];
   cell.memory.compressed ??= [];
   cell.memory.lineageRefs ??= [];
+  cell.memory.compactionGeneration ??= 0;
+  cell.memory.pendingCompaction ??= null;
+  cell.memory.lastCompactionId ??= null;
+  cell.memory.compactionRepairRequired ??= false;
   cell.memoryBudget ??= { ...MEMORY_BUDGET };
   cell.wakeState ??= 'DORMANT';
   cell.activationCount ??= 0;
@@ -204,7 +215,7 @@ function backfillDeferredMailboxes(world) {
   }
 }
 
-export function reloadWorld(serialized) {
+export function reloadWorld(serialized, { recoverMemoryCompactions = true } = {}) {
   const world = JSON.parse(serialized);
   if (world?.schema !== 'axm.echoworld/v0.01' || !world.cells || !world.actors) {
     throw new Error('INVALID_ECHOWORLD_SNAPSHOT');
@@ -223,6 +234,7 @@ export function reloadWorld(serialized) {
   world.receipts ??= {};
   world.receipts.truth ??= [];
   world.receipts.memory ??= [];
+  world.receipts.memoryCompactions ??= [];
   world.receipts.specialists ??= [];
   world.receipts.specialistMerges ??= [];
   world.receipts.handoffs ??= [];
@@ -232,5 +244,6 @@ export function reloadWorld(serialized) {
   world.receipts.cellLifecycles ??= [];
   world.receipts.deferredDeliveries ??= [];
 
+  if (recoverMemoryCompactions) recoverPendingMemoryCompactions(world);
   return world;
 }
