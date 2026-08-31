@@ -15,18 +15,25 @@ Completed in lane 01:
 - recipient-cell wake/specialist/perception/memory/relay/sleep lifecycle for SOUND;
 - CANONICAL versus OBSERVED memory provenance;
 - direct and scheduler-batch canonical hash witnesses;
+- bounded persistent busy-cell deferred delivery;
+- deterministic logical-epoch TTL and retry policy;
+- deferred-event and deferred-causal-arrival deduplication;
+- exact-once release after a recipient becomes DORMANT;
+- explicit mailbox overflow, expiry, retry-exhaustion, and release-blocked receipts;
+- persisted mailbox pause/resume;
 - local three-mode scheduler/lifecycle metrics.
 
 Priority order now:
 
-1. bounded retry or deferred delivery when a recipient cell is already active;
-2. interruption-safe memory compaction;
-3. crash-safe atomic persistence and scheduler recovery;
-4. explicit cross-revision policy for paused jobs;
+1. interruption-safe memory compaction;
+2. crash-safe atomic persistence for queue/mailbox transitions and scheduler recovery;
+3. explicit cross-revision policy for paused and deferred jobs;
+4. deterministic fairness/ownership rules across unrelated schedulers targeting one cell;
 5. longer mixed-event/property tests;
-6. larger sleeping-world activation and storage measurements;
+6. larger sleeping-world activation, mailbox, and storage measurements;
 7. material-aware attenuation and domain propagation rules;
-8. lossless external overflow/lineage strategy where required.
+8. lossless external overflow/lineage strategy for active queue or mailbox capacity failure;
+9. genuine concurrent execution experiments after the deterministic single-thread proof remains stable.
 
 Keep all work for this chat on `chatgpt/echoworld-lane-01`.
 
