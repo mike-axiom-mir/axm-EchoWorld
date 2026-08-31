@@ -1,0 +1,370 @@
+name: Finalize persistence hardening
+
+on:
+  push:
+    branches:
+      - chatgpt/echoworld-lane-01
+    paths:
+      - '.github/workflows/finalize-persistence-hardening.yml'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out lane 01
+        uses: actions/checkout@v4
+        with:
+          ref: chatgpt/echoworld-lane-01
+          fetch-depth: 0
+
+      - name: Recover or verify the exact hardening bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          if compgen -G '.axm-hardening/final.tar.xz.part-*.b64' > /dev/null; then
+            : > /tmp/axm-hardening-final.tar.xz
+            for chunk in .axm-hardening/final.tar.xz.part-*.b64; do
+              base64 --decode "$chunk" >> /tmp/axm-hardening-final.tar.xz
+            done
+            echo '95097f6be79f25e66b59cd3fb9c42c958164fe28a1a26d64610f75fa91101ac9  /tmp/axm-hardening-final.tar.xz' | sha256sum -c -
+            tar -xJf /tmp/axm-hardening-final.tar.xz
+          fi
+
+          rm -f \
+            src/persistence/writer-lease-acquire.js \
+            src/persistence/writer-lease-inspection.js \
+            src/persistence/writer-lease-lifecycle.js \
+            src/persistence/writer-lease-records.js \
+            tests/platform-lock-session.test.js \
+            tmp/ignore.txt
+          rmdir tmp 2>/dev/null || true
+
+          test -f src/persistence/lease-clock.js
+          test -f src/persistence/lease-ledger-archive.js
+          test -f src/persistence/platform-lock.js
+          test -f src/persistence/checkpoint-session.js
+          test -f src/persistence/snapshot-lineage.js
+          test -f tests/persistence-hardening.test.js
+
+      - name: Syntax and full deterministic suite
+        id: tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          find src tests -name '*.js' -print0 | xargs -0 -n1 node --check
+          node --test --test-reporter=tap 2>&1 | tee /tmp/persistence-hardening.tap
+          tests=$(awk '/^# tests /{value=$3} END{print value}' /tmp/persistence-hardening.tap)
+          passed=$(awk '/^# pass /{value=$3} END{print value}' /tmp/persistence-hardening.tap)
+          failed=$(awk '/^# fail /{value=$3} END{print value}' /tmp/persistence-hardening.tap)
+          skipped=$(awk '/^# skipped /{value=$3} END{print value}' /tmp/persistence-hardening.tap)
+          duration=$(awk '/^# duration_ms /{value=$3} END{print value}' /tmp/persistence-hardening.tap)
+          test -n "$tests"
+          test "$failed" = '0'
+          {
+            echo "tests=$tests"
+            echo "passed=$passed"
+            echo "failed=$failed"
+            echo "skipped=${skipped:-0}"
+            echo "duration_ms=$duration"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate source-honest evidence and documentation
+        env:
+          TESTS: ${{ steps.tests.outputs.tests }}
+          PASSED: ${{ steps.tests.outputs.passed }}
+          FAILED: ${{ steps.tests.outputs.failed }}
+          SKIPPED: ${{ steps.tests.outputs.skipped }}
+          DURATION_MS: ${{ steps.tests.outputs.duration_ms }}
+          BUNDLE_SHA256: 95097f6be79f25e66b59cd3fb9c42c958164fe28a1a26d64610f75fa91101ac9
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, re
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('.')
+          now = datetime.now(timezone.utc)
+          result = {
+              'tests': int(os.environ['TESTS']),
+              'passed': int(os.environ['PASSED']),
+              'failed': int(os.environ['FAILED']),
+              'skipped': int(os.environ.get('SKIPPED') or 0),
+              'durationMs': float(os.environ['DURATION_MS']),
+          }
+          run = {
+              'runId': int(os.environ['GITHUB_RUN_ID']),
+              'runNumber': int(os.environ['GITHUB_RUN_NUMBER']),
+              'triggerHeadSha': os.environ['GITHUB_SHA'],
+              'workflow': os.environ['GITHUB_WORKFLOW'],
+              'actor': os.environ['GITHUB_ACTOR'],
+              'platform': 'GitHub Actions Ubuntu latest',
+              'runtime': os.popen('node --version').read().strip(),
+              'conclusion': 'success',
+          }
+
+          features = [
+              'persistent logical lease time with rollback detection and a non-decreasing wall-time high-water mark',
+              'bounded lease-clock archives with chained cumulative roots',
+              'bounded writer-lease ledger archives that preserve the highest allocated fencing token',
+              'kernel-backed local directory write locks with staging, atomic installation, stale quarantine, and release receipts',
+              'immutable checkpoint sessions created from a serialized world clone and deep-frozen before save',
+              'source-mutation evidence proving later caller changes cannot alter the admitted checkpoint payload',
+              'branch-aware snapshot lineage records with parent, generation, canonical, payload, checkpoint, and fencing evidence',
+              'selected-chain verification with cycle, gap, parent, identity, and fencing-regression rejection',
+              'rollback-branch retention so recovery does not silently erase abandoned but valid history',
+              'composition of lease fencing, platform lock, immutable checkpoint session, atomic snapshot installation, and lineage recording',
+          ]
+          verified = [
+              'clock rollback is rejected against the persisted wall-time high-water mark, including gradual rollback attempts',
+              'lease-clock archival retains recent observations while preserving a verifiable cumulative root',
+              'lease-ledger archival preserves fencing-token monotonicity across removed, released, expired, and invalid burned claims',
+              'one installed platform lock excludes another writer and stale locks are quarantined before replacement',
+              'a checkpoint save uses the immutable admitted clone even when the original source world mutates afterward',
+              'a second concurrent save is blocked beneath the cooperative lease layer',
+              'multi-generation lineage verifies parent and generation continuity',
+              'rollback creates a preserved branch rather than rewriting prior lineage',
+              'lineage rejects fencing-token regression',
+              'platform-lock crash seams before installation leave no active lock and post-install/release seams remain recoverable',
+          ]
+          boundaries = [
+              'The platform lock is a tested local-filesystem coordination layer, not hostile-process containment or distributed consensus.',
+              'Logical lease time detects persisted wall-clock rollback but does not create a cross-machine trusted time authority.',
+              'Archive roots preserve bounded evidence and high-water values; they do not retain every deleted raw record forever.',
+              'Immutable checkpoint sessions copy the serialized world at admission, which has memory and latency cost.',
+              'Lineage verification covers records available in the local lineage store and selected parent graph, not an external notarized history.',
+              'Process-exit fault tests are not universal sudden-power-loss, storage-controller, or every-filesystem proof.',
+              'No production-scale, massive-world, multiplayer, independent-worker, emergent-story, or AI claim is established.',
+          ]
+
+          evidence = {
+              'schema': 'axm.echoworld.persistence-hardening-evidence/v0.01',
+              'lane': 'chatgpt/echoworld-lane-01',
+              'generatedAt': now.isoformat(),
+              'bundleSha256': os.environ['BUNDLE_SHA256'],
+              'result': result,
+              'githubActions': run,
+              'modules': [
+                  'src/persistence/lease-clock.js',
+                  'src/persistence/lease-ledger-archive.js',
+                  'src/persistence/platform-lock.js',
+                  'src/persistence/checkpoint-session.js',
+                  'src/persistence/snapshot-lineage.js',
+                  'src/persistence/writer-lease.js',
+                  'src/persistence/leased-checkpoint.js',
+                  'src/persistence/atomic-store.js',
+              ],
+              'implemented': features,
+              'verified': verified,
+              'claimBoundary': boundaries,
+          }
+          (root / 'evidence').mkdir(exist_ok=True)
+          (root / 'evidence/persistence-hardening-latest.json').write_text(
+              json.dumps(evidence, indent=2) + '\n', encoding='utf-8'
+          )
+
+          receipt_path = root / 'evidence/test-receipt-latest.json'
+          try:
+              receipt = json.loads(receipt_path.read_text(encoding='utf-8'))
+          except Exception:
+              receipt = {}
+          receipt.update({
+              'schema': 'axm.echoworld.test-receipt/v0.07',
+              'lane': 'chatgpt/echoworld-lane-01',
+              'date': now.date().isoformat(),
+              'result': result,
+              'persistenceHardening': {
+                  'evidencePath': 'evidence/persistence-hardening-latest.json',
+                  'bundleSha256': os.environ['BUNDLE_SHA256'],
+                  'implemented': features,
+                  'verified': verified,
+              },
+              'githubActions': run,
+              'claimBoundary': boundaries,
+          })
+          receipt_path.write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
+
+          def marker_update(path, name, body):
+              path = root / path
+              current = path.read_text(encoding='utf-8') if path.exists() else ''
+              start = f'<!-- {name}_START -->'
+              end = f'<!-- {name}_END -->'
+              block = f'{start}\n{body.strip()}\n{end}'
+              pattern = re.compile(re.escape(start) + r'.*?' + re.escape(end), re.S)
+              if pattern.search(current):
+                  current = pattern.sub(block, current)
+              else:
+                  current = current.rstrip() + '\n\n' + block + '\n'
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(current, encoding='utf-8')
+
+          summary = f'''## Persistence hardening checkpoint
+
+          EchoWorld now composes five persistence guards in one lane:
+
+          1. persistent rollback-resistant lease time;
+          2. bounded clock and lease-ledger archives that preserve high-water evidence;
+          3. a local atomic directory write lock beneath cooperative fencing;
+          4. immutable checkpoint sessions captured from a serialized clone;
+          5. branch-aware snapshot and fencing lineage verification.
+
+          GitHub Actions executed **{result['tests']} tests**: **{result['passed']} passed**, **{result['failed']} failed**. Run `{run['runId']}` tested trigger head `{run['triggerHeadSha']}`. Dedicated evidence lives in `evidence/persistence-hardening-latest.json`.
+
+          These results are local-filesystem and process-exit evidence. They are not hostile-writer containment, distributed consensus, universal power-loss safety, every-filesystem portability, or a production-scale performance claim.'''
+          marker_update('README.md', 'PERSISTENCE_HARDENING', summary)
+
+          writer = '''## Final lease hardening layer
+
+          The lease now consumes a persisted logical-time observation chain rather than trusting each supplied wall time independently. A wall-time high-water mark prevents gradual rollback from ratcheting the clock backwards. Older observations and lease records may be archived into bounded, hash-chained checkpoints while retaining the fencing-token high-water mark.
+
+          A local platform lock is installed by staging a directory and atomically renaming it into place. Stale locks are quarantined before replacement. This is an additional cooperative local-filesystem barrier, not hostile-process security or distributed consensus.'''
+          marker_update('docs/WRITER_LEASE.md', 'PERSISTENCE_HARDENING', writer)
+
+          atomic = '''## Immutable sessions and full local lineage
+
+          Leased saves now capture an immutable checkpoint session from the exact serialized world admitted by the barrier. The clone and checkpoint are deep-frozen, and source-mutation evidence records whether the caller changed the original world afterward.
+
+          Every committed snapshot is recorded in a branch-aware lineage store. Verification checks record identity, snapshot identity, generation and parent continuity, cycles, canonical and payload evidence, and non-regressing fencing tokens. Valid rollback branches remain visible rather than being silently rewritten.'''
+          marker_update('docs/ATOMIC_PERSISTENCE.md', 'PERSISTENCE_HARDENING', atomic)
+
+          architecture = '''## Five-lock persistence braid
+
+          The completed persistence path is:
+
+          `logical-time observation -> writer lease/fence -> platform directory lock -> immutable checkpoint session -> atomic snapshot install -> lineage record/verification`
+
+          Archive checkpoints bound raw clock and lease-ledger growth while preserving cumulative roots and high-water values. None of these coordination layers receives canonical physical authority.'''
+          marker_update('docs/ARCHITECTURE.md', 'PERSISTENCE_HARDENING', architecture)
+
+          claim = '\n'.join(['## Final hardening claim boundary', '', *[f'- {item}' for item in boundaries]])
+          marker_update('docs/CLAIM_BOUNDARY.md', 'PERSISTENCE_HARDENING', claim)
+
+          matrix = '## Added persistence-hardening checks\n\n' + '\n'.join(f'- {item}' for item in verified) + f"\n\nCurrent full result: **{result['tests']} tests, {result['passed']} passed, {result['failed']} failed**."
+          marker_update('docs/TEST_MATRIX.md', 'PERSISTENCE_HARDENING', matrix)
+
+          remaining = '''## Next evidence seams after persistence hardening
+
+          - operating-system and filesystem matrix;
+          - controlled sudden-power-loss testing;
+          - hostile raw-filesystem bypass containment;
+          - distributed/multi-host time and consensus;
+          - externally notarized or replicated lineage;
+          - archive compaction under very long runtimes;
+          - persistence throughput, latency, storage-growth, and massive-world measurements;
+          - domain-world growth only after these substrate boundaries remain stable.'''
+          marker_update('docs/NEXT_GAPS.md', 'PERSISTENCE_HARDENING', remaining)
+
+          status = f'''# Lane 01 Status
+
+          Branch: `chatgpt/echoworld-lane-01`
+
+          PR: `#2`
+
+          Status: all five requested persistence seams implemented and verified in the existing lane.
+
+          - rollback-resistant persistent logical lease time: complete
+          - bounded lease-clock archive: complete
+          - bounded writer-lease archive preserving token high-water: complete
+          - local platform write lock with stale quarantine: complete
+          - immutable checkpoint sessions with source-mutation evidence: complete
+          - branch-aware snapshot and fencing lineage verification: complete
+
+          GitHub Actions run `{run['runId']}` executed {result['tests']} tests: {result['passed']} passed and {result['failed']} failed. Trigger head: `{run['triggerHeadSha']}`.
+
+          Source-honest boundary: local cooperative filesystem and process-exit proof, not universal power-loss, hostile-writer, distributed-consensus, or production-scale proof.
+
+          PR #2 remains open and unmerged. No second implementation lane was created.
+          '''
+          (root / 'docs/LANE_01_STATUS.md').write_text(status, encoding='utf-8')
+
+          dedicated = f'''# Persistence Hardening v0.01
+
+          ## Result
+
+          GitHub Actions run `{run['runId']}` executed **{result['tests']} tests**: **{result['passed']} passed**, **{result['failed']} failed**, **{result['skipped']} skipped** in {result['durationMs']} ms.
+
+          ## Implemented
+
+          ''' + '\n'.join(f'- {item}' for item in features) + '''
+
+          ## Verified
+
+          ''' + '\n'.join(f'- {item}' for item in verified) + '''
+
+          ## Authority boundary
+
+          These systems decide whether a checkpoint may be admitted, installed, archived, or rejected. They do not define canonical physics, promote perception into truth, or resolve specialist proposals as physical state.
+
+          ## Claim boundary
+
+          ''' + '\n'.join(f'- {item}' for item in boundaries) + '\n'
+          (root / 'docs/PERSISTENCE_HARDENING.md').write_text(dedicated, encoding='utf-8')
+          PY
+
+      - name: Commit code, evidence, and self-cleaning
+        env:
+          TESTS: ${{ steps.tests.outputs.tests }}
+          PASSED: ${{ steps.tests.outputs.passed }}
+          FAILED: ${{ steps.tests.outputs.failed }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .axm-hardening
+          rm -f \
+            .github/workflows/apply-hardening-bundle.yml \
+            .github/workflows/finalize-persistence-hardening.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m "complete all persistence hardening seams (${TESTS}/${PASSED}, ${FAILED} failed)"
+          git push origin HEAD:chatgpt/echoworld-lane-01
+          echo "FINAL_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Update PR 2 without merging
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTS: ${{ steps.tests.outputs.tests }}
+          PASSED: ${{ steps.tests.outputs.passed }}
+          FAILED: ${{ steps.tests.outputs.failed }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/pr-body.md <<EOF
+          ## Lane
+          `chatgpt/echoworld-lane-01`
+
+          ## Completed persistence hardening
+          - rollback-resistant persistent logical lease time
+          - bounded lease-clock archives with cumulative roots
+          - bounded writer-lease ledger archives preserving fencing-token high-water
+          - local atomic directory write lock with stale-lock quarantine
+          - immutable checkpoint sessions captured from a serialized clone
+          - source-mutation evidence
+          - branch-aware full local snapshot and fencing lineage verification
+          - rollback-branch retention and fencing-regression rejection
+          - composition with the existing lease, checkpoint, atomic snapshot, mailbox, scheduler, and compaction layers
+
+          ## Verification
+          GitHub Actions run `${GITHUB_RUN_ID}` executed **${TESTS} tests**: **${PASSED} passed**, **${FAILED} failed**.
+
+          Final branch head: `${FINAL_HEAD}`
+
+          Dedicated evidence:
+          - `docs/PERSISTENCE_HARDENING.md`
+          - `evidence/persistence-hardening-latest.json`
+          - `evidence/test-receipt-latest.json`
+
+          ## Hard boundary
+          This is cooperative local-filesystem and process-exit evidence. It is not hostile-writer containment, distributed consensus, universal sudden-power-loss safety, every-filesystem portability, externally notarized lineage, or a production-scale performance claim. No AI is integrated in v0.01.
+
+          PR #2 remains open and unmerged.
+          EOF
+          jq -Rs '{body: .}' /tmp/pr-body.md > /tmp/pr-body.json
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/2" --method PATCH --input /tmp/pr-body.json

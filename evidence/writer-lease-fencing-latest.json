@@ -1,0 +1,143 @@
+{
+  "schema": "axm.echoworld.writer-lease-fencing-evidence/v0.01",
+  "lane": "chatgpt/echoworld-lane-01",
+  "date": "2026-08-31",
+  "implementation": {
+    "headSha": "6455d5dd4dc2d0609ab13ca38e096ca2fee63fc9",
+    "modules": [
+      "src/persistence/writer-lease.js",
+      "src/persistence/checkpoint.js",
+      "src/persistence/leased-checkpoint.js",
+      "src/persistence/atomic-types.js",
+      "src/persistence/snapshot-envelope.js",
+      "src/persistence/snapshot-candidates.js",
+      "src/persistence/recovery.js",
+      "src/persistence/atomic-store.js"
+    ],
+    "snapshotSchema": "axm.echoworld.atomic-snapshot/v0.02",
+    "legacySnapshotSchema": "axm.echoworld.atomic-snapshot/v0.01",
+    "checkpointSchema": "axm.echoworld.checkpoint-admission/v0.01"
+  },
+  "leaseLedger": {
+    "mode": "append-only local filesystem records",
+    "recordSchemas": {
+      "claim": "axm.echoworld.writer-lease-claim/v0.01",
+      "activation": "axm.echoworld.writer-lease-activation/v0.01",
+      "heartbeat": "axm.echoworld.writer-lease-heartbeat/v0.01",
+      "base": "axm.echoworld.writer-lease-base/v0.01",
+      "release": "axm.echoworld.writer-lease-release/v0.01",
+      "handle": "axm.echoworld.writer-lease-handle/v0.01"
+    },
+    "integrity": "Every record contains a deterministic SHA-256 recordHash.",
+    "allocation": "Exclusive claim filenames allocate monotonically increasing integer fencing tokens. Invalid or abandoned claim filenames burn tokens but cannot activate.",
+    "election": "The lowest live cooperative contender activates. Inspection treats the highest active fencing token as authoritative if contradictory active records exist.",
+    "expiry": "Latest valid activation or heartbeat expiresAtMs controls active ownership.",
+    "release": "Release is append-only and scoped to fencing token plus lease ID."
+  },
+  "checkpointAdmission": {
+    "fields": [
+      "writerId",
+      "leaseId",
+      "fencingToken",
+      "admittedAtMs",
+      "admittedBaseGeneration",
+      "admittedBaseSnapshotId",
+      "worldRevision",
+      "canonicalHash",
+      "operationalHash",
+      "operationalCounts",
+      "checkpointId"
+    ],
+    "defaultStableCellStates": [
+      "DORMANT",
+      "REPAIR"
+    ],
+    "operationalProjection": [
+      "seen event IDs",
+      "seen causal-arrival keys",
+      "scheduler job identity, status, base revision and queued handoff identities",
+      "deferred mailbox ownership, identities, retries and expiry epochs",
+      "pending compaction IDs, generations, stages and before/after hashes",
+      "cell wake state, activation count and latest wake/sleep event IDs"
+    ],
+    "payloadBoundary": "The full serialized world remains separately protected by payloadHash. operationalHash is a selected coordination witness, not a duplicate full-payload hash."
+  },
+  "fencing": {
+    "staleHandle": "A lease handle fails after a higher active fencing token takes over.",
+    "staleBase": "A leased checkpoint fails when the durable generation/snapshot ID differs from the lease base.",
+    "transientPolicy": "Lower-token leased temp and recoveryTemp candidates are ineligible for a higher-token writer.",
+    "committedHistory": "Primary and backup candidates are not rejected merely because their committed checkpoint token is older.",
+    "authorityBoundaries": [
+      "AFTER_BASE_RECOVERY",
+      "BEFORE_TEMP_WRITE",
+      "AFTER_TEMP_FSYNC",
+      "BEFORE_BACKUP_COPY",
+      "AFTER_BACKUP_DIRECTORY_FSYNC",
+      "BEFORE_PRIMARY_RENAME",
+      "AFTER_PRIMARY_DIRECTORY_FSYNC",
+      "AFTER_PRIMARY_VERIFY"
+    ],
+    "baseCheck": "Immediately before primary rename, the installed primary generation and snapshot ID are compared with the admitted base."
+  },
+  "verifiedTests": [
+    "one active writer lease blocks a second cooperative writer",
+    "simultaneous cooperative claims elect exactly one active writer",
+    "release permits immediate acquisition with a strictly higher fencing token",
+    "heartbeat renewal extends ownership and later stale takeover fences the old writer",
+    "an invalid burned claim cannot become active and the next token remains monotonic",
+    "leased checkpoint embeds fencing evidence and advances the lease base",
+    "a stale checkpoint base is rejected even while the same lease remains current",
+    "a stale owner cannot checkpoint after a higher fencing token takes over",
+    "checkpoint barrier rejects an unquiesced receiving cell",
+    "checkpoint operational hash covers pending queues, mailboxes, and compaction journals",
+    "checkpoint tampering invalidates the deterministic snapshot identity",
+    "new fencing token discards an older leased temp that never reached primary commit",
+    "lease expiry during save prevents primary installation and the next owner fences the temp",
+    "leased checkpoint refuses a durable base changed by a non-cooperating writer",
+    "stale-owner recovery succeeds after process exit at AFTER_CLAIM_FSYNC",
+    "stale-owner recovery succeeds after process exit at AFTER_ACTIVATION_FSYNC",
+    "stale-owner recovery succeeds after process exit at AFTER_BASE_RECORD_FSYNC",
+    "process exit after durable release permits immediate replacement"
+  ],
+  "processExit": {
+    "method": "Child Node.js process calls process.exit(86) after a durable lease stage; a later writer attempts acquisition.",
+    "stages": [
+      "AFTER_CLAIM_FSYNC",
+      "AFTER_ACTIVATION_FSYNC",
+      "AFTER_BASE_RECORD_FSYNC",
+      "AFTER_RELEASE_FSYNC"
+    ],
+    "result": "All four lease process-exit tests passed under their tested expiry or release condition."
+  },
+  "authorityBoundary": {
+    "canonicalMutationApplied": false,
+    "statement": "Writer coordination may admit or reject a checkpoint but does not define canonical physical rules. Lease, fence and checkpoint fields are excluded from canonical physical truth."
+  },
+  "githubActions": {
+    "runId": 33405590474,
+    "jobId": 99532258471,
+    "mergeRefSha": "bc2ac474b60bd91e3574e5e597c44d1287c5113b",
+    "runtime": "Node.js v22.23.2",
+    "platform": "Ubuntu 24.04.4",
+    "tests": 85,
+    "passed": 85,
+    "failed": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0,
+    "durationMs": 2086.800059,
+    "conclusion": "success"
+  },
+  "claimBoundary": [
+    "The protocol fences cooperating writers that use the lease and leased-checkpoint APIs; it is not hostile raw-filesystem writer enforcement.",
+    "Lease expiry uses supplied millisecond time. Cross-machine clock skew, clock rollback, VM suspension and distributed consensus are not solved.",
+    "There is a narrow interval between the final pre-rename assertion and rename; no kernel-enforced compare-and-swap currently closes it.",
+    "The checkpoint operational hash covers selected coordination projections, while payloadHash protects the complete world.",
+    "The lease ledger is append-only and has no verified garbage-collection or archival protocol.",
+    "Legacy uncheckpointed v0.01 transients contain no fencing token and are not retroactively classified as stale leased candidates.",
+    "Immediate parent/base evidence is verified; complete snapshot and fencing lineage is not.",
+    "The checkpoint API does not freeze arbitrary caller mutation throughout the asynchronous save.",
+    "Process-exit evidence is not universal sudden-power-loss evidence.",
+    "No production-scale, massive-world, multiplayer or AI claim is established."
+  ]
+}

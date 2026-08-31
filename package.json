@@ -1,0 +1,13 @@
+{
+  "name": "axm-echoworld",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "benchmark": "node scripts/benchmark-scheduler.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
