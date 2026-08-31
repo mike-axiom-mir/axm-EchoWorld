@@ -4,36 +4,38 @@ The next implementation work should strengthen deterministic proof rather than a
 
 Completed in lane 01:
 
-- duplicate handoff suppression;
-- cycle-safe bounded multi-hop envelopes;
-- future-revision guard;
-- stale proposal rejection;
-- deterministic conflict preservation;
-- queued deterministic scheduling;
-- processing and queue-capacity budgets;
+- duplicate, cycle, hop-limit, future-revision, and repeated-arrival handoff guards;
+- deterministic queued scheduling and explicit processing/queue budgets;
 - persisted scheduler pause/resume;
-- recipient-cell wake/specialist/perception/memory/relay/sleep lifecycle for SOUND;
+- SOUND recipient wake/specialist/perception/memory/relay/sleep lifecycle;
 - CANONICAL versus OBSERVED memory provenance;
 - direct and scheduler-batch canonical hash witnesses;
 - bounded persistent busy-cell deferred delivery;
-- deterministic logical-epoch TTL and retry policy;
-- deferred-event and deferred-causal-arrival deduplication;
-- exact-once release after a recipient becomes DORMANT;
+- deterministic logical-epoch TTL, retry, deduplication, and exact-once release;
 - explicit mailbox overflow, expiry, retry-exhaustion, and release-blocked receipts;
 - persisted mailbox pause/resume;
+- copy-on-write working-memory compaction;
+- persisted before/after compaction journal with hashes;
+- deterministic recovery from four interruption points;
+- corrupt-after rollback without invented memory;
+- corrupt-before fail-closed `REPAIR` state;
+- idempotent recovery and one final commit receipt;
+- provenance-preserving compaction summaries;
+- 49-test GitHub Actions checkpoint;
 - local three-mode scheduler/lifecycle metrics.
 
 Priority order now:
 
-1. interruption-safe memory compaction;
-2. crash-safe atomic persistence for queue/mailbox transitions and scheduler recovery;
-3. explicit cross-revision policy for paused and deferred jobs;
-4. deterministic fairness/ownership rules across unrelated schedulers targeting one cell;
-5. longer mixed-event/property tests;
-6. larger sleeping-world activation, mailbox, and storage measurements;
-7. material-aware attenuation and domain propagation rules;
-8. lossless external overflow/lineage strategy for active queue or mailbox capacity failure;
-9. genuine concurrent execution experiments after the deterministic single-thread proof remains stable.
+1. crash-atomic snapshot persistence using integrity envelopes, temporary files, atomic replacement, and deterministic recovery selection;
+2. unify queue, deferred mailbox, and compaction journal into an explicit persisted transaction/checkpoint boundary;
+3. trusted-lineage repair tool for corrupt-before compaction journals;
+4. explicit cross-revision policy for paused and deferred jobs;
+5. deterministic fairness/ownership rules across unrelated schedulers targeting one cell;
+6. longer mixed-event/property tests;
+7. larger sleeping-world activation, mailbox, compaction-journal, and storage measurements;
+8. material-aware attenuation and domain propagation rules;
+9. lossless external overflow/lineage strategy for active queue or mailbox capacity failure;
+10. genuine concurrent execution experiments after the deterministic single-thread proof remains stable.
 
 Keep all work for this chat on `chatgpt/echoworld-lane-01`.
 

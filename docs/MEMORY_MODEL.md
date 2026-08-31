@@ -60,22 +60,111 @@ For both current memory paths:
 
 Memory-disabled mode performs the receiving lifecycle but writes no memory.
 
-## Compaction
+## Copy-on-write compaction
 
-When working memory exceeds its budget, overflow records are grouped by provenance class, event class, and actor into bounded compressed summaries.
+When working memory exceeds its budget, EchoWorld no longer mutates the working and compressed arrays as an unguarded two-step operation.
 
-Compaction emits a receipt.
+It first creates a persisted journal:
+
+```text
+PREPARED
+  before.working + hash
+  before.compressed + hash
+  after.working + hash
+  after.compressed + hash
+  compactionId + generation + source event IDs
+```
+
+Only after the journal exists does it swap the working array, swap the compressed array, write one final compaction receipt, advance the compaction generation, and clear the journal.
+
+The deterministic compaction identity is derived from:
+
+- cell ID;
+- compaction generation;
+- before-working hash;
+- before-compressed hash;
+- after-working hash;
+- after-compressed hash.
+
+Compressed summaries are grouped by:
+
+`provenanceClass | eventClass | actorId`
+
+CANONICAL and OBSERVED records therefore cannot silently collapse into one summary.
+
+## Tested interruption points
+
+The harness can inject an interruption at:
+
+- `AFTER_PREPARE`
+- `AFTER_WORKING_SWAP`
+- `AFTER_COMPRESSED_SWAP`
+- `AFTER_COMMIT_RECEIPT`
+
+These are test seams. Normal runtime does not request an interruption.
+
+## Reload recovery
+
+`reloadWorld()` backfills memory-compaction fields and then scans cells in stable cell-ID order.
+
+For a valid pending journal:
+
+- a current array may match either its before-image or after-image;
+- recognized mixed states, such as working swapped but compressed not swapped, roll forward to the complete after-image;
+- recovery writes at most one final `COMMITTED` or `RECOVERED_COMMIT` receipt for the compaction ID;
+- a second recovery scan is idempotent.
+
+If the after-image or its hash is corrupt but the before-image is valid:
+
+- EchoWorld restores both complete before-images;
+- clears the pending journal;
+- records `RECOVERED_ROLLBACK_CORRUPT_AFTER`;
+- invents no replacement memory.
+
+If the before-image cannot be trusted:
+
+- the journal is retained;
+- `compactionRepairRequired` becomes true;
+- the cell enters `REPAIR`;
+- new compaction attempts fail with `MEMORY_COMPACTION_REPAIR_REQUIRED`;
+- repeated reloads do not multiply the same failure receipt.
+
+This is fail-closed. EchoWorld does not guess which corrupted memory was authentic.
+
+## Compaction receipts
+
+Compaction receipts use:
+
+`axm.echoworld.memory-compaction-receipt/v0.02`
+
+They include:
+
+- compaction ID and generation;
+- cell ID and world revision;
+- operation status and stage;
+- before/after counts;
+- compacted source event IDs;
+- before/after hashes for both arrays;
+- interruption or recovery information when applicable.
 
 ## Ordering invariants
 
 Canonical-event memory:
 
-`canonical validation -> canonical commit -> truth receipt -> CANONICAL memory`
+`canonical validation -> canonical commit -> truth receipt -> CANONICAL memory -> journaled compaction if needed`
 
 Handoff perception memory:
 
-`handoff guard acceptance -> recipient wake/specialists -> OBSERVED perception memory -> relay -> sleep`
+`handoff guard acceptance -> recipient wake/specialists -> OBSERVED perception memory -> journaled compaction if needed -> relay -> sleep`
+
+Reload recovery:
+
+`parse snapshot -> backfill non-canonical fields -> recover pending compaction -> return world`
 
 A rejected canonical event creates no memory.
 
 A rejected, duplicate, future-revision, or otherwise invalid handoff creates no recipient lifecycle and no perception memory.
+
+## Boundary
+
+The journal is serialized inside the current JSON snapshot model. The proof shows deterministic recovery from persisted intermediate states. It does not yet show atomic filesystem writes, fsync durability, process-kill recovery during the act of writing a snapshot, or recovery from corruption of both journal images.

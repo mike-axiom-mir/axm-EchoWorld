@@ -11,8 +11,9 @@
 - specialist finish-order variation does not change canonical hash
 - contradictory specialist proposal order does not change its conflict receipt
 - direct recipient lifecycle records identical before/after canonical hashes
-- scheduler batches annotate recipient lifecycle receipts with an unchanged canonical hash witness
-- deferred mailbox operations remain inside the scheduler's unchanged canonical hash witness
+- scheduler batches annotate lifecycle receipts with an unchanged canonical hash witness
+- deferred mailbox operations remain inside the unchanged scheduler hash witness
+- normal, interrupted, recovered, rolled-back, and repair-locked compaction paths leave canonical hash unchanged
 
 ### Memory and provenance
 
@@ -23,19 +24,34 @@
 - synthetic unverified signals remain OBSERVED and do not become canonical
 - memory-disabled recipient processing writes no memory
 - repeated/seen handoffs cannot create a second lifecycle or memory write
-- observed memory compaction emits receipts
 - a deferred arrival creates no perception or memory before actual acceptance
 - expiry and retry exhaustion create no false perception or memory
+- compaction summary keys keep CANONICAL and OBSERVED records separate
+
+### Interruption-safe memory compaction
+
+- copy-on-write compaction preserves semantic record count in the tested plan
+- working and compressed arrays stay inside declared budgets after commit
+- compaction writes one deterministic final commit receipt
+- interruption after journal prepare recovers to the uninterrupted result
+- interruption after working-array swap recovers to the uninterrupted result
+- interruption after compressed-array swap recovers to the uninterrupted result
+- interruption after commit receipt clears the journal without duplicating the final receipt
+- recovery is idempotent after repair
+- corrupt after-image restores the complete valid before-image and introduces no fake record
+- corrupt before-image retains the journal, marks `compactionRepairRequired`, and enters `REPAIR`
+- repeated reload of a corrupt-before journal does not duplicate the same failure receipt
 
 ### Persistence
 
 - JSON persistence/reload preserves canonical hash
 - malformed snapshot shape is rejected
-- missing non-canonical cell/handoff/scheduler/mailbox fields are backfilled on reload
+- missing non-canonical cell/handoff/scheduler/mailbox/compaction fields are backfilled
 - a budget-paused scheduler queue survives persistence and resumes to drain
 - perception and lifecycle receipts survive persistence without entering canonical truth
 - deferred mailboxes and retry/TTL policy survive persistence and resume
-- deferred-delivery receipts survive persistence as non-canonical evidence
+- pending valid compaction journals are recovered automatically during reload
+- compaction receipts and generation state survive persistence
 
 ### Specialists
 
@@ -44,54 +60,45 @@
 - stale proposal is rejected
 - contradictory proposals are preserved and rejected from canonical mutation
 - arrival specialist finish order cannot change lifecycle meaning or canonical truth
-- a deferred arrival runs no specialist until it is released and accepted
+- deferred arrival runs no specialist until released and accepted
 
-### Handoffs and recipient lifecycle
+### Handoffs, lifecycle, and deferred delivery
 
-- duplicate handoff ID is rejected
-- causal-path cycle is rejected
-- hop-limit excess is rejected
-- future source revision is rejected before recipient activation
-- future source revision is rejected rather than deferred when the recipient is busy
-- one causal signal cannot be accepted twice at one recipient
+- duplicate, causal-cycle, hop-limit, future-revision, and repeated-arrival guards
 - sender does not directly mutate neighbor truth
 - terminal hop emits no further handoffs
 - every permutation of the initial four-way queue produces the same scheduler receipt and guard state
-- processing-budget exhaustion is explicit
-- queue-capacity overflow is explicit and cannot report a clean drain
-- accepted SOUND arrival wakes the recipient
-- recipient returns to DORMANT after processing
-- accepted arrival creates a perception receipt
-- optional observed memory is written only when memory is enabled
-- bounded relay handoffs are emitted after recipient processing
-- explicit processEvent scheduling drains emitted handoffs without neighbor truth mutation
+- processing, queue, and mailbox capacity failures are explicit
+- accepted SOUND arrival wakes, perceives, optionally remembers, relays, and sleeps
+- deferred delivery releases exactly once when recipient becomes DORMANT
+- deferred event/causal-arrival deduplication works across scheduler jobs
+- deterministic TTL expiry and retry exhaustion fail closed
+- mailbox release order is independent of initial input order
 
-### Busy-cell deferred delivery
+## Current result
 
-- a valid busy-cell arrival is deferred before acceptance
-- deferred arrival is not added to the seen ledger while waiting
-- deferred arrival creates no guard-acceptance, lifecycle, perception, specialist, or memory effect while waiting
-- a deferred arrival releases exactly once after its recipient returns to DORMANT
-- resuming a drained scheduler cannot deliver the same deferred arrival twice
-- a second scheduler cannot enqueue an event already present in any deferred mailbox
-- deterministic TTL expiry removes waiting work with an explicit receipt
-- deterministic retry exhaustion removes waiting work with an explicit receipt
-- per-recipient mailbox overflow reports `BUDGET_EXHAUSTED` and `MAILBOX_BUDGET_EXCEEDED`
-- mailbox release order is identical for forward and reversed initial input order
-- releasable mail remains deferred if the active queue has no capacity
+GitHub Actions run `33374326936`, job `99432286023`:
+
+- 49 tests
+- 49 passed
+- 0 failed
+- Node.js v22.23.2
+- duration `761.555682 ms`
 
 ## Required later checks
 
+- actual process-kill during snapshot write
+- atomic temporary-file replacement and integrity-envelope recovery
+- corruption of both compaction images
+- trusted-lineage repair for corrupt-before state
+- transaction spanning active queue, mailbox, and compaction journal
 - genuine competing/concurrent execution rather than simulated busy state
 - fairness across unrelated scheduler jobs targeting one recipient
-- atomic handoff between active queue and deferred mailbox under crash
-- interrupted memory compaction and recovery
 - corrupted episodic memory quarantine/repair
 - missing lineage reference repair
 - long mixed-event property testing
 - larger sleeping world with tiny active region
 - cross-revision handoff/scheduler/mailbox policy
 - lossless external overflow queue or lineage continuation
-- crash during scheduler or mailbox state persistence
 - material-aware attenuation and domain propagation rules
-- mailbox load and retention benchmarks
+- mailbox, compaction, and recovery benchmarks

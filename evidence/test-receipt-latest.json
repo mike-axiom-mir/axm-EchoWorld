@@ -1,5 +1,5 @@
 {
-  "schema": "axm.echoworld.test-receipt/v0.03",
+  "schema": "axm.echoworld.test-receipt/v0.04",
   "lane": "chatgpt/echoworld-lane-01",
   "date": "2026-08-31",
   "environment": {
@@ -8,11 +8,12 @@
     "command": "npm test"
   },
   "result": {
-    "tests": 40,
-    "passed": 40,
+    "tests": 49,
+    "passed": 49,
     "failed": 0,
     "cancelled": 0,
-    "skipped": 0
+    "skipped": 0,
+    "durationMs": 761.555682
   },
   "verified": [
     "memory-enabled and memory-disabled modes produce the same canonical truth hash",
@@ -54,8 +55,29 @@
     "mailbox capacity overflow is explicit and cannot masquerade as successful delivery",
     "deferred mailbox state and retry policy survive persistence and resume",
     "an invalid future-revision arrival is rejected instead of deferred even when its recipient is busy",
-    "mailbox release order is deterministic regardless of initial input order"
+    "mailbox release order is deterministic regardless of initial input order",
+    "copy-on-write compaction preserves tested semantic count and declared budgets",
+    "reload recovers compaction interrupted after journal prepare",
+    "reload recovers compaction interrupted after working-array swap",
+    "reload recovers compaction interrupted after compressed-array swap",
+    "reload recovers compaction interrupted after final commit-receipt write",
+    "recovery is idempotent after interrupted compaction has been repaired",
+    "a corrupt after-image rolls back to the complete before-image without fake memory",
+    "a corrupt before-image fails closed in explicit REPAIR state without duplicate failure receipts",
+    "compaction never merges CANONICAL and OBSERVED provenance classes"
   ],
+  "memoryCompaction": {
+    "journalSchema": "axm.echoworld.memory-compaction-journal/v0.02",
+    "receiptSchema": "axm.echoworld.memory-compaction-receipt/v0.02",
+    "interruptPoints": [
+      "AFTER_PREPARE",
+      "AFTER_WORKING_SWAP",
+      "AFTER_COMPRESSED_SWAP",
+      "AFTER_COMMIT_RECEIPT"
+    ],
+    "recoveryBoundary": "Valid journals roll forward; corrupt after-images roll back to the valid before-image; corrupt before-images retain the journal and enter REPAIR.",
+    "authorityBoundary": "Compaction journals, receipts, generations, and repair state are non-canonical and all tested paths preserve the canonical hash."
+  },
   "deferredDelivery": {
     "receiptSchema": "axm.echoworld.deferred-delivery-receipt/v0.01",
     "schedulerReceiptSchema": "axm.echoworld.handoff-scheduler-receipt/v0.02",
@@ -64,33 +86,30 @@
       "maxDeferredRetries": 3,
       "deferredTtlEpochs": 8
     },
-    "timeBoundary": "TTL uses deterministic scheduler-drain epochs, not wall-clock time or canonical world revision.",
-    "acceptanceBoundary": "A deferred handoff is not added to the seen ledger and creates no lifecycle, perception, specialist, or memory effect until release and actual acceptance."
+    "timeBoundary": "TTL uses deterministic scheduler-drain epochs, not wall-clock time or canonical world revision."
   },
   "benchmark": {
     "path": "evidence/scheduler-benchmark-latest.json",
     "schema": "axm.echoworld.scheduler-benchmark/v0.02",
-    "boundary": "Existing local three-mode wall-clock microbenchmark only; deferred-mailbox timing is not measured and no production-scale or speedup claim is made."
+    "boundary": "Existing local three-mode wall-clock microbenchmark only; deferred-mailbox and compaction-recovery timing are not measured."
   },
   "claimBoundary": [
+    "Compaction interruption is injected at deterministic in-memory stages and then captured through JSON persistence.",
+    "The proof does not cover process termination during the physical act of writing a snapshot file.",
+    "A corrupt-before journal is not automatically reconstructed without another trusted source.",
     "Recipient lifecycle and deferred delivery are implemented only for the current SOUND handoff proof.",
     "Busy state is simulated through deterministic wakeState, not genuine concurrent execution.",
-    "Deferred TTL is a logical scheduler epoch, not a real-time deadline.",
-    "Observed memory is non-canonical and may reference an unverified synthetic cause.",
-    "Scheduler-batch hash witnesses cover the drained batch rather than hashing the full world for every cell.",
     "Queue or mailbox capacity overflow is explicit but dropped work is not losslessly recoverable.",
-    "JSON persistence is not crash-safe atomic durable storage.",
-    "Fairness across unrelated scheduler jobs is not established.",
+    "JSON persistence is not crash-atomic durable storage.",
     "No performance or massive-world scaling claim is established.",
     "Specialists remain proposal-only and are not independent workers.",
     "No AI is integrated."
   ],
   "githubActions": {
-    "codeHeadSha": "7492bbf17626e467ee4efe783e55f5fae1c9cd24",
-    "mergeRefSha": "668e9f87099e032b8819854df024301d2dc68732",
-    "runId": 33348537317,
-    "jobId": 99357232155,
-    "conclusion": "success",
-    "durationMs": 527.055165
+    "codeHeadSha": "0d0050a2323f2775093bf8eed3c0df5e6492ffc7",
+    "mergeRefSha": "8651120757cd1ef8a31e9ac421d60547d6e9805e",
+    "runId": 33374326936,
+    "jobId": 99432286023,
+    "conclusion": "success"
   }
 }

@@ -2,19 +2,21 @@
 
 Branch: `chatgpt/echoworld-lane-01`
 
-Status: bounded busy-cell deferred delivery implemented and verified on top of the recipient-cell SOUND lifecycle.
+Status: interruption-safe memory compaction implemented and verified on top of recipient lifecycle and bounded deferred delivery.
 
 Current proof checkpoint:
 
-- GitHub Actions executed 40 tests on Node.js v22.23.2;
-- 40 passed, 0 failed;
-- implementation commit `7492bbf17626e467ee4efe783e55f5fae1c9cd24` passed run `33348537317`;
-- valid arrivals aimed at non-DORMANT cells defer before acceptance;
-- deferred arrivals create no perception, specialist, lifecycle, or memory effect while waiting;
-- per-recipient mailboxes are bounded and persisted;
-- release order, TTL, retries, capacity failure, and deduplication are deterministic and receipt-bearing;
-- a released arrival executes exactly once after its recipient becomes DORMANT;
-- invalid future-revision arrivals are rejected rather than preserved in a mailbox;
-- scheduler-boundary canonical hash witnesses show no physical truth mutation in the tested deferred-delivery paths.
+- implementation head `0d0050a2323f2775093bf8eed3c0df5e6492ffc7`;
+- GitHub Actions run `33374326936`, job `99432286023`;
+- Node.js v22.23.2 on Ubuntu 24.04;
+- 49 tests passed, 0 failed;
+- working-memory compaction now prepares complete hashed before/after images before either array is swapped;
+- reload recovers interruptions after prepare, working swap, compressed swap, and final-receipt write;
+- recognized intermediate states roll forward to the same result as uninterrupted compaction;
+- a corrupt after-image rolls back to the complete before-image without fake memory;
+- a corrupt before-image retains the journal and enters explicit `REPAIR`;
+- recovery is idempotent and final commit receipts are not duplicated;
+- CANONICAL and OBSERVED records remain separate during summary compaction;
+- all tested compaction and recovery paths leave canonical physical truth unchanged.
 
 This chat remains confined to this single lane. PR #2 remains the coherent review surface; no second implementation branch was created and nothing was silently merged.
