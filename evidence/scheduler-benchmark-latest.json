@@ -1,14 +1,15 @@
 {
-  "schema": "axm.echoworld.scheduler-benchmark/v0.01",
-  "observedAt": "2026-08-30T21:22:45.217Z",
+  "schema": "axm.echoworld.scheduler-benchmark/v0.02",
+  "observedAt": "2026-08-31T01:02:17.350Z",
   "environment": {
     "runtime": "v22.16.0",
     "platform": "linux",
     "architecture": "x64"
   },
   "method": {
-    "scheduler": "deterministic queued handoff propagation",
+    "scheduler": "deterministic queued handoff propagation with A/B recipient lifecycle modes",
     "timing": "performance.now wall-clock milliseconds",
+    "sourceLineage": "Synthetic benchmark signals are intentionally unverified causes.",
     "warning": "Local microbenchmark only; not a production-scale claim."
   },
   "results": [
@@ -17,63 +18,261 @@
       "height": 16,
       "hopLimit": 8,
       "repeats": 25,
-      "durationMs": {
-        "min": 4.803,
-        "median": 6.806,
-        "p95": 12.246,
-        "max": 14.361
-      },
-      "deterministicCounts": {
-        "processed": 143,
-        "accepted": 142,
-        "rejected": 1,
-        "generated": 446,
-        "coalescedBeforeQueue": 307,
-        "maxQueueObserved": 32
-      },
-      "canonicalMutationApplied": false
+      "modes": [
+        {
+          "mode": "ENVELOPE_ONLY",
+          "memoryEnabled": false,
+          "processArrivals": false,
+          "durationMs": {
+            "min": 4.57,
+            "median": 7.773,
+            "p95": 10.973,
+            "max": 15.64
+          },
+          "deterministicCounts": {
+            "processed": 143,
+            "accepted": 142,
+            "rejected": 1,
+            "generated": 446,
+            "coalescedBeforeQueue": 307,
+            "lifecycleProcessed": 0,
+            "perceptions": 0,
+            "memoryWrites": 0,
+            "sourceVerified": 0,
+            "sourceUnverified": 0,
+            "maxQueueObserved": 32
+          },
+          "canonicalMutationApplied": false
+        },
+        {
+          "mode": "RECIPIENT_LIFECYCLE_NO_MEMORY",
+          "memoryEnabled": false,
+          "processArrivals": true,
+          "durationMs": {
+            "min": 5.848,
+            "median": 7.276,
+            "p95": 11.408,
+            "max": 13.187
+          },
+          "deterministicCounts": {
+            "processed": 143,
+            "accepted": 142,
+            "rejected": 1,
+            "generated": 446,
+            "coalescedBeforeQueue": 307,
+            "lifecycleProcessed": 142,
+            "perceptions": 142,
+            "memoryWrites": 0,
+            "sourceVerified": 0,
+            "sourceUnverified": 142,
+            "maxQueueObserved": 32
+          },
+          "canonicalMutationApplied": false
+        },
+        {
+          "mode": "RECIPIENT_LIFECYCLE_WITH_MEMORY",
+          "memoryEnabled": true,
+          "processArrivals": true,
+          "durationMs": {
+            "min": 5.587,
+            "median": 7.381,
+            "p95": 9.925,
+            "max": 10.499
+          },
+          "deterministicCounts": {
+            "processed": 143,
+            "accepted": 142,
+            "rejected": 1,
+            "generated": 446,
+            "coalescedBeforeQueue": 307,
+            "lifecycleProcessed": 142,
+            "perceptions": 142,
+            "memoryWrites": 142,
+            "sourceVerified": 0,
+            "sourceUnverified": 142,
+            "maxQueueObserved": 32
+          },
+          "canonicalMutationApplied": false
+        }
+      ],
+      "observedMedianMultiplier": {
+        "lifecycleNoMemoryVsEnvelope": 0.936,
+        "lifecycleWithMemoryVsEnvelope": 0.95
+      }
     },
     {
       "width": 32,
       "height": 32,
       "hopLimit": 12,
       "repeats": 15,
-      "durationMs": {
-        "min": 19.54,
-        "median": 21.554,
-        "p95": 24.727,
-        "max": 28.69
-      },
-      "deterministicCounts": {
-        "processed": 313,
-        "accepted": 312,
-        "rejected": 1,
-        "generated": 1056,
-        "coalescedBeforeQueue": 747,
-        "maxQueueObserved": 50
-      },
-      "canonicalMutationApplied": false
+      "modes": [
+        {
+          "mode": "ENVELOPE_ONLY",
+          "memoryEnabled": false,
+          "processArrivals": false,
+          "durationMs": {
+            "min": 19.194,
+            "median": 21.772,
+            "p95": 26.766,
+            "max": 27.541
+          },
+          "deterministicCounts": {
+            "processed": 313,
+            "accepted": 312,
+            "rejected": 1,
+            "generated": 1056,
+            "coalescedBeforeQueue": 747,
+            "lifecycleProcessed": 0,
+            "perceptions": 0,
+            "memoryWrites": 0,
+            "sourceVerified": 0,
+            "sourceUnverified": 0,
+            "maxQueueObserved": 50
+          },
+          "canonicalMutationApplied": false
+        },
+        {
+          "mode": "RECIPIENT_LIFECYCLE_NO_MEMORY",
+          "memoryEnabled": false,
+          "processArrivals": true,
+          "durationMs": {
+            "min": 28.584,
+            "median": 34.507,
+            "p95": 45.597,
+            "max": 45.948
+          },
+          "deterministicCounts": {
+            "processed": 313,
+            "accepted": 312,
+            "rejected": 1,
+            "generated": 1056,
+            "coalescedBeforeQueue": 747,
+            "lifecycleProcessed": 312,
+            "perceptions": 312,
+            "memoryWrites": 0,
+            "sourceVerified": 0,
+            "sourceUnverified": 312,
+            "maxQueueObserved": 50
+          },
+          "canonicalMutationApplied": false
+        },
+        {
+          "mode": "RECIPIENT_LIFECYCLE_WITH_MEMORY",
+          "memoryEnabled": true,
+          "processArrivals": true,
+          "durationMs": {
+            "min": 22.943,
+            "median": 31.498,
+            "p95": 37.113,
+            "max": 41.455
+          },
+          "deterministicCounts": {
+            "processed": 313,
+            "accepted": 312,
+            "rejected": 1,
+            "generated": 1056,
+            "coalescedBeforeQueue": 747,
+            "lifecycleProcessed": 312,
+            "perceptions": 312,
+            "memoryWrites": 312,
+            "sourceVerified": 0,
+            "sourceUnverified": 312,
+            "maxQueueObserved": 50
+          },
+          "canonicalMutationApplied": false
+        }
+      ],
+      "observedMedianMultiplier": {
+        "lifecycleNoMemoryVsEnvelope": 1.585,
+        "lifecycleWithMemoryVsEnvelope": 1.447
+      }
     },
     {
       "width": 64,
       "height": 64,
       "hopLimit": 16,
       "repeats": 10,
-      "durationMs": {
-        "min": 60.217,
-        "median": 62.05,
-        "p95": 68.257,
-        "max": 68.446
-      },
-      "deterministicCounts": {
-        "processed": 545,
-        "accepted": 544,
-        "rejected": 1,
-        "generated": 1920,
-        "coalescedBeforeQueue": 1379,
-        "maxQueueObserved": 64
-      },
-      "canonicalMutationApplied": false
+      "modes": [
+        {
+          "mode": "ENVELOPE_ONLY",
+          "memoryEnabled": false,
+          "processArrivals": false,
+          "durationMs": {
+            "min": 61.12,
+            "median": 76.928,
+            "p95": 87.255,
+            "max": 87.905
+          },
+          "deterministicCounts": {
+            "processed": 545,
+            "accepted": 544,
+            "rejected": 1,
+            "generated": 1920,
+            "coalescedBeforeQueue": 1379,
+            "lifecycleProcessed": 0,
+            "perceptions": 0,
+            "memoryWrites": 0,
+            "sourceVerified": 0,
+            "sourceUnverified": 0,
+            "maxQueueObserved": 64
+          },
+          "canonicalMutationApplied": false
+        },
+        {
+          "mode": "RECIPIENT_LIFECYCLE_NO_MEMORY",
+          "memoryEnabled": false,
+          "processArrivals": true,
+          "durationMs": {
+            "min": 65.2,
+            "median": 73.45,
+            "p95": 104.222,
+            "max": 112.839
+          },
+          "deterministicCounts": {
+            "processed": 545,
+            "accepted": 544,
+            "rejected": 1,
+            "generated": 1920,
+            "coalescedBeforeQueue": 1379,
+            "lifecycleProcessed": 544,
+            "perceptions": 544,
+            "memoryWrites": 0,
+            "sourceVerified": 0,
+            "sourceUnverified": 544,
+            "maxQueueObserved": 64
+          },
+          "canonicalMutationApplied": false
+        },
+        {
+          "mode": "RECIPIENT_LIFECYCLE_WITH_MEMORY",
+          "memoryEnabled": true,
+          "processArrivals": true,
+          "durationMs": {
+            "min": 68.679,
+            "median": 81.62,
+            "p95": 95.57,
+            "max": 95.664
+          },
+          "deterministicCounts": {
+            "processed": 545,
+            "accepted": 544,
+            "rejected": 1,
+            "generated": 1920,
+            "coalescedBeforeQueue": 1379,
+            "lifecycleProcessed": 544,
+            "perceptions": 544,
+            "memoryWrites": 544,
+            "sourceVerified": 0,
+            "sourceUnverified": 544,
+            "maxQueueObserved": 64
+          },
+          "canonicalMutationApplied": false
+        }
+      ],
+      "observedMedianMultiplier": {
+        "lifecycleNoMemoryVsEnvelope": 0.955,
+        "lifecycleWithMemoryVsEnvelope": 1.061
+      }
     }
   ]
 }

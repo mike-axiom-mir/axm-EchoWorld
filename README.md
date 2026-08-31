@@ -20,29 +20,42 @@ See `AGENTS.md` for the one-chat/one-lane rule.
 - a bridge structure
 - canonical revision + SHA-256 truth hash
 - deterministic MOVE / DAMAGE_STRUCTURE / FIRE rules
-- wake -> bounded specialist proposals -> deterministic proposal merge gate -> canonical commit -> memory update -> handoff emission -> sleep ordering
+- truth-before-memory canonical event ordering
 - bounded working, episodic, compressed, and lineage memory
 - deterministic memory importance and compaction receipts
 - stale specialist proposal rejection
 - deterministic conflict preservation/rejection for contradictory specialist proposals
-- bounded handoff envelopes with duplicate, cycle, and hop-limit guards
+- bounded handoff envelopes with duplicate, cycle, hop-limit, future-revision, and repeated-arrival guards
 - deterministic queued handoff scheduler
 - deterministic coalescing of repeated arrivals from the same causal signal
 - hard processing and queue-capacity budgets with explicit incomplete receipts
 - persisted unfinished scheduler jobs that can resume after reload
+- recipient-cell lifecycle for accepted SOUND handoffs:
+  - wake
+  - event-relevant SOUND specialists
+  - deterministic proposal merge gate
+  - OBSERVED perception receipt
+  - bounded perception memory when enabled
+  - bounded relay handoffs
+  - sleep
+- committed-source lineage detection through `causalEventId + sourceRevision`
+- direct lifecycle canonical-hash witness
+- scheduler-level canonical-hash witness for batched lifecycle processing
 - JSON persistence/reload with snapshot-shape validation and non-canonical state backfill
 - memory-enabled vs memory-disabled A/B replay
-- local scheduler microbenchmark receipt
+- envelope-only vs lifecycle/no-memory vs lifecycle/with-memory local microbenchmark
 
 ## Authority boundary
 
-Memory, specialists, handoff guards, scheduler jobs, and scheduler receipts are not physical truth authority.
+Memory, perception, wake state, specialists, handoff guards, scheduler jobs, and scheduler receipts are not physical truth authority.
 
 A failed canonical transition creates no memory about an event that never committed.
 
+A handoff can create only an **OBSERVED** local memory after its guard accepts it. That memory retains causal provenance and cannot promote itself into canonical truth.
+
 Conflicting specialist proposals do not gain authority through worker finish order. They are preserved as deterministic conflicts and rejected from canonical mutation.
 
-The handoff scheduler propagates bounded event envelopes only. It does not directly rewrite recipient-cell physical truth.
+The recipient lifecycle may wake, interpret, remember, relay, and sleep. It does not directly rewrite recipient-cell physical truth.
 
 ## Run
 
@@ -57,30 +70,38 @@ npm run benchmark
 
 The current lane-01 checkpoint was executed locally with Node.js v22.16.0:
 
-- 23 tests
-- 23 passed
+- 31 tests
+- 31 passed
 - 0 failed
+
+GitHub Actions independently passed the recipient-lifecycle implementation checkpoint:
+
+- commit `7e41fab8b9b9f7972e7ff01a20e7e01850c962f8`
+- run `33346932247`
+- conclusion `success`
 
 The scheduler-order test checks every permutation of the initial four-way queue.
 
-GitHub Actions independently passed the implementation checkpoint:
+The v0.02 local benchmark compares:
 
-- commit `f4e548904660cd4d9ecd2df687c934cbd47c2636`
-- run `33336545874`
-- conclusion `success`
+- envelope propagation only
+- recipient lifecycle with memory disabled
+- recipient lifecycle with memory enabled
+
+Its timings are noisy single-machine observations, not evidence that lifecycle processing is free or faster.
 
 See:
 
 - `evidence/test-receipt-latest.json`
 - `evidence/scheduler-benchmark-latest.json`
 
-The benchmark is a local microbenchmark, not a production-scale claim.
-
 ## Not proven yet
 
 - production-scale performance
 - massive sleeping-world scaling
-- full recipient-cell wake/perception/specialist processing for accepted handoffs
+- physical sound attenuation or material-aware propagation
+- simultaneous/concurrent arrival handling
+- busy-cell retry/deferred delivery
 - crash-safe atomic durable storage
 - interruption-safe memory compaction
 - independent parallel specialist execution
