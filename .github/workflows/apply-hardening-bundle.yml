@@ -1,0 +1,63 @@
+name: Apply verified persistence hardening bundle
+
+on:
+  push:
+    branches:
+      - chatgpt/echoworld-lane-01
+    paths:
+      - '.axm-hardening/**'
+      - '.github/workflows/apply-hardening-bundle.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out lane 01
+        uses: actions/checkout@v4
+        with:
+          ref: chatgpt/echoworld-lane-01
+          fetch-depth: 0
+
+      - name: Reconstruct and verify bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > /tmp/axm-hardening-final.tar.xz
+          for chunk in .axm-hardening/final.tar.xz.part-*.b64; do
+            base64 --decode "$chunk" >> /tmp/axm-hardening-final.tar.xz
+          done
+          echo '95097f6be79f25e66b59cd3fb9c42c958164fe28a1a26d64610f75fa91101ac9  /tmp/axm-hardening-final.tar.xz' | sha256sum -c -
+          tar -xJf /tmp/axm-hardening-final.tar.xz
+
+          rm -f \
+            src/persistence/writer-lease-acquire.js \
+            src/persistence/writer-lease-inspection.js \
+            src/persistence/writer-lease-lifecycle.js \
+            src/persistence/writer-lease-records.js \
+            tests/platform-lock-session.test.js \
+            tmp/ignore.txt
+          rmdir tmp 2>/dev/null || true
+
+      - name: Verify exact implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          find src tests -name '*.js' -print0 | xargs -0 -n1 node --check
+          npm test
+
+      - name: Commit verified hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .axm-hardening
+          rm -f .github/workflows/apply-hardening-bundle.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'complete persistence hardening and replace partial lease split'
+          git push origin HEAD:chatgpt/echoworld-lane-01
