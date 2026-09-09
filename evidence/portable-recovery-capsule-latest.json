@@ -1,0 +1,48 @@
+{
+  "schema": "axm.echoworld.portable-recovery-capsule-evidence/v0.01",
+  "observedAt": "2026-09-09T10:10:19Z",
+  "baseCommit": "7187b4420f5b87bf55c00a594a90e3b0baeb46df",
+  "branch": "automation/portable-recovery-capsule-20260909-1156",
+  "scope": "deterministic pinned recovery capsule and empty-target restore",
+  "focused": {
+    "command": "node --test tests/snapshot-recovery-capsule.test.js",
+    "tests": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "full": {
+    "command": "npm test",
+    "tests": 113,
+    "passed": 113,
+    "failed": 0,
+    "cancelled": 0,
+    "skipped": 0
+  },
+  "benchmark": {
+    "command": "npm run benchmark",
+    "completed": true,
+    "deterministicCountsStable": true,
+    "canonicalMutationApplied": false,
+    "performanceClaim": false
+  },
+  "invariants": [
+    "capsule bytes and identity repeat for unchanged committed state",
+    "only the selected complete lineage is exported after rollback branching",
+    "uncommitted temporary candidates cannot be promoted by capsule creation",
+    "caller-owned capsule pin is required before restore",
+    "capsule and lineage mutation fail before target writes",
+    "all ordinary source candidates may be corrupt after prior capsule export",
+    "different valid, corrupt, temporary, and backup target evidence is preserved",
+    "matching partial lineage restore resumes deterministically",
+    "replaying the same restored capsule is explicitly idempotent"
+  ],
+  "authority": {
+    "networkAdded": false,
+    "cloudAdded": false,
+    "accountAdded": false,
+    "aiAdded": false,
+    "canonicalPhysicsChanged": false,
+    "inPlaceDamagedStoreOverwrite": false,
+    "canonClaimed": false
+  }
+}
