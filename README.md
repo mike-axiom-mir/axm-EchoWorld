@@ -4,6 +4,13 @@ EchoWorld is an experimental deterministic persistent-cell world harness.
 
 **v0.01 question:** can small persistent world cells retain bounded experience and spawn only relevant temporary specialist work while canonical physical truth remains deterministic, replayable, and protected from experiential authority?
 
+## Local consumer boundary
+
+The deterministic event-to-truth core can be packed for another local Node.js
+project without repository-relative imports. The installed `echoworld-replay`
+command creates and independently re-executes portable event-stream receipts.
+See [CONSUMER.md](CONSUMER.md). No registry release is published.
+
 ## Current lane
 
 Implementation work remains isolated to:
