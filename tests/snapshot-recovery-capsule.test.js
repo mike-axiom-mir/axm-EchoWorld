@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import {
   mkdtemp,
   readFile,
@@ -8,6 +9,7 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { canonicalHash, createWorld } from '../src/core/state.js';
 import { processEvent } from '../src/core/world.js';
@@ -256,3 +258,69 @@ test('replaying an already restored capsule is explicitly idempotent', async (t)
   assert.equal(repeated.status, 'ALREADY_RESTORED');
   assert.equal(repeated.snapshotId, recovery.snapshotId);
 });
+
+test('retry installs a matching recovery temp left before primary rename', async (t) => {
+  const source = await createThreeGenerationStore(t);
+  const recovery = await createSnapshotRecoveryCapsule({ directory: source.directory });
+  const target = await makeDirectory(t, 'capsule-recovery-temp-target');
+  const paths = atomicSnapshotPaths(target);
+  await writeFile(
+    paths.recoveryTemp,
+    serializeAtomicSnapshotEnvelope(recovery.capsule.headEnvelope),
+    'utf8',
+  );
+
+  const receipt = await restoreSnapshotRecoveryCapsule({
+    directory: target,
+    capsuleText: recovery.text,
+    expectedCapsuleId: recovery.capsuleId,
+  });
+  const inspection = await inspectAtomicSnapshotStore({ directory: target });
+
+  assert.equal(receipt.status, 'RESTORED');
+  assert.equal(inspection.selected.role, 'primary');
+  assert.equal(inspection.selected.envelope.snapshotId, recovery.snapshotId);
+  await assert.rejects(() => readFile(paths.recoveryTemp), (error) => error?.code === 'ENOENT');
+});
+
+for (const crashStage of [
+  'AFTER_RECOVERY_TEMP_FSYNC',
+  'AFTER_RECOVERY_PRIMARY_RENAME',
+  'AFTER_RECOVERY_DIRECTORY_FSYNC',
+]) {
+  test(`abrupt process exit at ${crashStage} leaves capsule restore restartable`, async (t) => {
+    const source = await createThreeGenerationStore(t);
+    const recovery = await createSnapshotRecoveryCapsule({ directory: source.directory });
+    const target = await makeDirectory(t, `capsule-crash-${crashStage.toLowerCase()}`);
+    const capsulePath = path.join(source.directory, 'recovery-capsule.json');
+    await writeFile(capsulePath, recovery.text, 'utf8');
+    const worker = fileURLToPath(
+      new URL('./fixtures/snapshot-recovery-capsule-crash-worker.js', import.meta.url),
+    );
+
+    const child = spawnSync(
+      process.execPath,
+      [worker, target, 'world', capsulePath, recovery.capsuleId, crashStage],
+      { encoding: 'utf8' },
+    );
+    assert.equal(
+      child.status,
+      86,
+      `worker did not exit at ${crashStage}: stdout=${child.stdout} stderr=${child.stderr}`,
+    );
+
+    const receipt = await restoreSnapshotRecoveryCapsule({
+      directory: target,
+      capsuleText: recovery.text,
+      expectedCapsuleId: recovery.capsuleId,
+    });
+    const loaded = await loadAtomicWorldSnapshot({ directory: target });
+    const inspection = await inspectAtomicSnapshotStore({ directory: target });
+
+    assert.ok(['RESTORED', 'ALREADY_RESTORED'].includes(receipt.status));
+    assert.equal(inspection.selected.role, 'primary');
+    assert.equal(loaded.snapshotId, recovery.snapshotId);
+    assert.equal(canonicalHash(loaded.world), canonicalHash(source.thirdWorld));
+    assert.equal(loaded.lineage.chainLength, recovery.lineageLength);
+  });
+}

@@ -6,6 +6,7 @@ import {
 import {
   AtomicSnapshotError,
   atomicSnapshotPaths,
+  invokeSnapshotStage,
   sha256,
 } from './atomic-types.js';
 import {
@@ -224,6 +225,7 @@ export async function restoreSnapshotRecoveryCapsule({
   capsuleText,
   expectedCapsuleId,
   requireDirectorySync = true,
+  onStage = null,
 } = {}) {
   if (typeof expectedCapsuleId !== 'string' || expectedCapsuleId.length === 0) {
     throw new AtomicSnapshotError(
@@ -273,8 +275,22 @@ export async function restoreSnapshotRecoveryCapsule({
     requireDirectorySync,
   });
 
-  if (store.selected?.envelope?.snapshotId === validation.capsule.headEnvelope.snapshotId) {
-    return recoveryReceipt('ALREADY_RESTORED', directory, name, validation);
+  const stageContext = {
+    capsuleId: validation.capsule.capsuleId,
+    generation: validation.capsule.headEnvelope.generation,
+    snapshotId: validation.capsule.headEnvelope.snapshotId,
+  };
+  if (
+    store.selected?.role === 'primary'
+    && store.selected.envelope.snapshotId === validation.capsule.headEnvelope.snapshotId
+  ) {
+    const directorySync = await syncDirectory(directory, { requireDirectorySync });
+    await invokeSnapshotStage(onStage, 'AFTER_RECOVERY_DIRECTORY_FSYNC', {
+      ...stageContext,
+      directorySync,
+      resumed: true,
+    });
+    return recoveryReceipt('ALREADY_RESTORED', directory, name, validation, directorySync);
   }
 
   const paths = atomicSnapshotPaths(directory, name);
@@ -283,8 +299,15 @@ export async function restoreSnapshotRecoveryCapsule({
     paths.recoveryTemp,
     serializeAtomicSnapshotEnvelope(validation.capsule.headEnvelope),
   );
+  await invokeSnapshotStage(onStage, 'AFTER_RECOVERY_TEMP_FSYNC', stageContext);
   await renameReplacing(paths.recoveryTemp, paths.primary);
+  await invokeSnapshotStage(onStage, 'AFTER_RECOVERY_PRIMARY_RENAME', stageContext);
   const directorySync = await syncDirectory(directory, { requireDirectorySync });
+  await invokeSnapshotStage(onStage, 'AFTER_RECOVERY_DIRECTORY_FSYNC', {
+    ...stageContext,
+    directorySync,
+    resumed: false,
+  });
   const primary = await readSnapshotCandidate('primary', paths.primary);
   if (!primary.valid || primary.envelope.snapshotId !== validation.capsule.headEnvelope.snapshotId) {
     throw new AtomicSnapshotError(
