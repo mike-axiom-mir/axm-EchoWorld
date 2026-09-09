@@ -99,7 +99,13 @@ Requires Node.js 20+.
 ```bash
 npm test
 npm run benchmark
+npm run observer:build
 ```
+
+Open `observer/index.html` directly in a browser to step through a deterministic
+input → truth → observation proof. The generated observer is an offline,
+non-authoritative projection of real core receipts; it does not simulate or
+mutate canonical state in the browser.
 
 ## Current evidence
 

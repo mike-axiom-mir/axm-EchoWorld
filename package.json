@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "benchmark": "node scripts/benchmark-scheduler.js"
+    "benchmark": "node scripts/benchmark-scheduler.js",
+    "observer:build": "node scripts/build-observer.js"
   },
   "engines": {
     "node": ">=20"
