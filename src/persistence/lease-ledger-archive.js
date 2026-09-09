@@ -240,7 +240,7 @@ function logicalExpiry(record, logicalField, legacyField) {
 
 async function tokenStatus(paths, token, logicalNowMs) {
   const claim = await recordForToken(paths.claimsDir, 'claim', token, RECORD_SCHEMAS.claim);
-  if (!claim.valid) return { archivable: false, reason: 'INVALID_OR_MISSING_CLAIM7 };
+  if (!claim.valid) return { archivable: false, reason: 'INVALID_OR_MISSING_CLAIM' };
   const activation = await recordForToken(
     paths.activationsDir,
     'activation',
