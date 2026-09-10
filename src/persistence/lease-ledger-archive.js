@@ -401,6 +401,18 @@ export async function archiveLeaseLedgerRecords({
   for (const token of eligibleTokens) {
     const files = await tokenFiles(state.paths, token);
     for (const item of files) {
+      if (!item.result.valid) {
+        throw new AtomicSnapshotError(
+          'LEASE_LEDGER_ARCHIVE_INVALID_RAW_RECORD',
+          'Lease-ledger archival refuses to delete invalid raw evidence.',
+          {
+            fencingToken: token,
+            relativePath: item.relativePath,
+            reason: item.result.reason,
+            details: item.result.details ?? null,
+          },
+        );
+      }
       if (!item.result.text) continue;
       entries.push({
         fencingToken: token,
