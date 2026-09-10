@@ -14,6 +14,7 @@ import { archiveLeaseLedgerRecords } from '../src/persistence/lease-ledger-archi
 import {
   acquireWriterLease,
   inspectWriterLeaseStore,
+  releaseWriterLease,
   writerLeasePaths,
 } from '../src/persistence/writer-lease.js';
 
@@ -76,10 +77,14 @@ test('a re-sealed foreign release cannot end another writer claim', async (t) =>
     && record.reason === 'RECORD_CLAIM_IDENTITY_MISMATCH'
   )));
   await assert.rejects(
+    () => releaseWriterLease({ directory, lease, nowMs: 1_003 }),
+    (error) => error?.code === 'WRITER_LEASE_RELEASE_CONFLICT',
+  );
+  await assert.rejects(
     () => acquireWriterLease({
       directory,
       writerId: 'writer-b',
-      nowMs: 1_003,
+      nowMs: 1_004,
       leaseDurationMs: 10_000,
     }),
     (error) => error?.code === 'WRITER_LEASE_HELD',

@@ -9,6 +9,7 @@ import path from 'node:path';
 
 import { AtomicSnapshotError, sha256 } from './atomic-types.js';
 import { syncDirectory } from './fs-durability.js';
+import { validateWriterLeaseRecordIdentity } from './writer-lease-records.js';
 
 export const LEASE_LEDGER_ARCHIVE_SCHEMA = 'axm.echoworld.writer-lease-ledger-archive/v0.01';
 
@@ -215,20 +216,62 @@ export async function highestLeaseFencingToken({
 }
 
 async function recordForToken(directoryPath, prefix, token, schema) {
-  return readJson(path.join(directoryPath, `${prefix}-${tokenPart(token)}.json`), schema);
+  const result = await readJson(
+    path.join(directoryPath, `${prefix}-${tokenPart(token)}.json`),
+    schema,
+  );
+  if (!result.valid) return result;
+  return {
+    ...result,
+    ...validateWriterLeaseRecordIdentity(
+      result.record,
+      { fencingToken: token },
+      'RECORD_FILENAME_IDENTITY_MISMATCH',
+    ),
+  };
 }
 
-async function heartbeatRecords(paths, token) {
+function bindArchiveRecordToClaim(result, claim) {
+  if (!result.valid || !claim?.valid) return result;
+  return {
+    ...result,
+    ...validateWriterLeaseRecordIdentity(
+      result.record,
+      {
+        fencingToken: claim.record.fencingToken,
+        writerId: claim.record.writerId,
+        leaseId: claim.record.leaseId,
+      },
+      'RECORD_CLAIM_IDENTITY_MISMATCH',
+    ),
+  };
+}
+
+async function heartbeatRecords(paths, token, claim = null) {
   const heartbeatNames = (await names(paths.heartbeatsDir))
     .map((fileName) => ({ fileName, parsed: parseHeartbeat(fileName) }))
     .filter((item) => item.parsed?.fencingToken === token)
     .sort((a, b) => a.parsed.sequence - b.parsed.sequence);
   const records = [];
   for (const item of heartbeatNames) {
+    const read = await readJson(
+      path.join(paths.heartbeatsDir, item.fileName),
+      RECORD_SCHEMAS.heartbeat,
+    );
+    const filenameBound = read.valid
+      ? {
+        ...read,
+        ...validateWriterLeaseRecordIdentity(
+          read.record,
+          item.parsed,
+          'RECORD_FILENAME_IDENTITY_MISMATCH',
+        ),
+      }
+      : read;
     records.push({
       relativePath: path.join('heartbeats', item.fileName),
       filePath: path.join(paths.heartbeatsDir, item.fileName),
-      result: await readJson(path.join(paths.heartbeatsDir, item.fileName), RECORD_SCHEMAS.heartbeat),
+      result: bindArchiveRecordToClaim(filenameBound, claim),
     });
   }
   return records.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
@@ -248,15 +291,17 @@ async function tokenStatus(paths, token, logicalNowMs) {
     RECORD_SCHEMAS.activation,
   );
   const release = await recordForToken(paths.releasesDir, 'release', token, RECORD_SCHEMAS.release);
-  const heartbeats = await heartbeatRecords(paths, token);
+  const linkedActivation = bindArchiveRecordToClaim(activation, claim);
+  const linkedRelease = bindArchiveRecordToClaim(release, claim);
+  const heartbeats = await heartbeatRecords(paths, token, claim);
   const latestHeartbeat = heartbeats
     .filter((item) => item.result.valid)
     .at(-1)?.result.record ?? null;
 
-  if (release.valid) return { archivable: true, reason: 'RELEASED' };
-  if (activation.valid) {
+  if (linkedRelease.valid) return { archivable: true, reason: 'RELEASED' };
+  if (linkedActivation.valid) {
     const expiry = logicalExpiry(
-      latestHeartbeat ?? activation.record,
+      latestHeartbeat ?? linkedActivation.record,
       'expiresAtLogicalMs',
       'expiresAtMs',
     );
@@ -278,6 +323,7 @@ async function tokenStatus(paths, token, logicalNowMs) {
 
 async function tokenFiles(paths, token) {
   const files = [];
+  const claim = await recordForToken(paths.claimsDir, 'claim', token, RECORD_SCHEMAS.claim);
   for (const [directoryPath, prefix, schema, relativeDirectory] of [
     [paths.claimsDir, 'claim', RECORD_SCHEMAS.claim, 'claims'],
     [paths.activationsDir, 'activation', RECORD_SCHEMAS.activation, 'activations'],
@@ -286,10 +332,23 @@ async function tokenFiles(paths, token) {
   ]) {
     const fileName = `${prefix}-${tokenPart(token)}.json`;
     const filePath = path.join(directoryPath, fileName);
-    const result = await readJson(filePath, schema);
+    const raw = await readJson(filePath, schema);
+    const filenameBound = raw.valid
+      ? {
+        ...raw,
+        ...validateWriterLeaseRecordIdentity(
+          raw.record,
+          { fencingToken: token },
+          'RECORD_FILENAME_IDENTITY_MISMATCH',
+        ),
+      }
+      : raw;
+    const result = prefix === 'claim'
+      ? filenameBound
+      : bindArchiveRecordToClaim(filenameBound, claim);
     if (result.exists) files.push({ relativePath: path.join(relativeDirectory, fileName), filePath, result });
   }
-  files.push(...await heartbeatRecords(paths, token));
+  files.push(...await heartbeatRecords(paths, token, claim));
   return files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
 
