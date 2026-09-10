@@ -35,13 +35,25 @@
           </button>
         </div>
         <div class="grid-wrap">
-          <div id="world-grid" class="world-grid" role="img" aria-label="16 by 16 EchoWorld grid"></div>
+          <p id="grid-help" class="grid-help">Select a cell to inspect it. Arrow keys move across the world; Home/End move across a row.</p>
+          <div id="world-grid" class="world-grid" role="grid" aria-label="16 by 16 EchoWorld canonical world" aria-describedby="grid-help cell-inspector" aria-rowcount="16" aria-colcount="16"></div>
           <div class="grid-key" aria-hidden="true">
             <span><i class="key-actor"></i> Actor</span>
             <span><i class="key-structure"></i> Structure</span>
             <span><i class="key-truth"></i> Truth changed</span>
             <span><i class="key-observed"></i> Observed</span>
           </div>
+          <section id="cell-inspector" class="cell-inspector" aria-labelledby="cell-title" aria-live="polite">
+            <div class="cell-inspector-heading">
+              <div>
+                <p class="section-label">SELECTED CELL</p>
+                <h3 id="cell-title">Cell 2, 1</h3>
+              </div>
+              <code id="cell-id">C_2_1</code>
+            </div>
+            <p id="cell-summary" class="cell-summary">Bridge structure · integrity 100</p>
+            <dl id="cell-evidence" class="cell-evidence"></dl>
+          </section>
         </div>
       </div>
 

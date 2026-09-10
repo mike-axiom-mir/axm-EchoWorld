@@ -46,3 +46,18 @@ test('browser observer script parses without executing browser globals', async (
   const source = await readFile(resolve('observer/app.js'), 'utf8');
   assert.doesNotThrow(() => new Function(source));
 });
+
+test('observer grid is one-tab-stop navigable with a truthful selected-cell receipt', async () => {
+  const template = await readFile(resolve('observer/template.html'), 'utf8');
+  const source = await readFile(resolve('observer/app.js'), 'utf8');
+
+  assert.match(template, /id="world-grid"[^>]+role="grid"/);
+  assert.match(template, /aria-rowcount="16" aria-colcount="16"/);
+  assert.match(template, /id="cell-inspector"[^>]+aria-live="polite"/);
+  assert.match(source, /row\.setAttribute\('role', 'row'\)/);
+  assert.match(source, /setAttribute\('role', 'gridcell'\)/);
+  assert.match(source, /node\.tabIndex = cell\.cellId === state\.selectedCellId \? 0 : -1/);
+  assert.match(source, /\['Truth changed', changed \? 'Yes' : 'No'\]/);
+  assert.match(source, /\['Observed', observedDepth == null \? 'No' : `Depth \$\{observedDepth\}`\]/);
+  assert.match(source, /\['Memory', state\.memoryVisible \? `\$\{cell\.memoryCount\} records` : 'Layer hidden'\]/);
+});
