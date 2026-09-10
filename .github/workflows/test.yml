@@ -31,3 +31,41 @@ jobs:
           node-version: '22'
       - name: Run deterministic harness tests
         run: npm test
+
+  merge-candidate:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact merge candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Require exact merge candidate lineage
+        env:
+          EXPECTED_MERGE_SHA: ${{ github.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          actual_merge_sha="$(git rev-parse HEAD)"
+          read -r commit_sha base_parent_sha head_parent_sha extra_parent_sha <<EOF
+          $(git rev-list --parents -n 1 HEAD)
+          EOF
+          printf 'expected merge: %s\nactual checkout: %s\nexpected base parent: %s\nactual base parent: %s\nexpected head parent: %s\nactual head parent: %s\n' \
+            "$EXPECTED_MERGE_SHA" "$actual_merge_sha" \
+            "$EXPECTED_BASE_SHA" "$base_parent_sha" \
+            "$EXPECTED_HEAD_SHA" "$head_parent_sha"
+          test "$actual_merge_sha" = "$EXPECTED_MERGE_SHA"
+          test "$commit_sha" = "$EXPECTED_MERGE_SHA"
+          test -n "$base_parent_sha"
+          test -n "$head_parent_sha"
+          test -z "$extra_parent_sha"
+          test "$base_parent_sha" = "$EXPECTED_BASE_SHA"
+          test "$head_parent_sha" = "$EXPECTED_HEAD_SHA"
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run deterministic harness tests on merge candidate
+        run: npm test
