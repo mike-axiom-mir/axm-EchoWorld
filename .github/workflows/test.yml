@@ -25,6 +25,29 @@ jobs:
           actual_head_sha="$(git rev-parse HEAD)"
           printf 'expected source head: %s\nactual checkout: %s\nevent GITHUB_SHA: %s\n' "$EXPECTED_HEAD_SHA" "$actual_head_sha" "$GITHUB_SHA"
           test "$actual_head_sha" = "$EXPECTED_HEAD_SHA"
+      - name: Require immutable GitHub Action pins
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import re
+
+          workflow = pathlib.Path('.github/workflows/test.yml')
+          violations = []
+          pattern = re.compile(r'^\s*uses:\s*([^@\s]+)@([^\s#]+)')
+          for number, line in enumerate(workflow.read_text(encoding='utf-8').splitlines(), 1):
+              match = pattern.match(line)
+              if not match:
+                  continue
+              action, ref = match.groups()
+              if not re.fullmatch(r'[0-9a-f]{40}', ref):
+                  violations.append(f'{workflow}:{number}: {action}@{ref}')
+          if violations:
+              print('Mutable GitHub Action refs are not admitted in critical CI:')
+              print('\n'.join(violations))
+              raise SystemExit(1)
+          print('All GitHub Action refs are pinned to immutable 40-hex commit SHAs.')
+          PY
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
