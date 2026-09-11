@@ -12,13 +12,40 @@
     'flow-input', 'flow-truth', 'flow-observation', 'truth-count', 'observed-count',
     'memory-count', 'queue-count', 'evidence-list', 'previous', 'play', 'play-icon',
     'play-label', 'next', 'invariance-status', 'announcer', 'cell-title',
-    'cell-id', 'cell-summary', 'cell-evidence',
+    'cell-id', 'cell-summary', 'cell-evidence', 'keyboard-help',
   ].map((id) => [id, $(id)]));
 
   const state = { index: 0, memoryVisible: true, timer: null, selectedCellId: 'C_2_1' };
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   elements['authority-copy'].textContent = payload.authorityBoundary;
+  elements['keyboard-help'].textContent = 'Keys: ←/→ step · Space play/pause · M memory · C changed cell';
+
+  const consequence = (() => {
+    const panel = document.createElement('div');
+    panel.className = 'consequence-nav';
+    panel.dataset.state = 'idle';
+    panel.setAttribute('role', 'group');
+    panel.setAttribute('aria-label', 'Canonical consequence navigation');
+
+    const copy = document.createElement('div');
+    const label = document.createElement('span');
+    label.className = 'consequence-label';
+    label.textContent = 'CANONICAL CONSEQUENCE';
+    const status = document.createElement('p');
+    status.className = 'consequence-status';
+    status.setAttribute('aria-live', 'polite');
+    status.setAttribute('aria-atomic', 'true');
+    copy.append(label, status);
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'consequence-button';
+    button.addEventListener('click', () => focusNextChangedCell());
+    panel.append(copy, button);
+    elements['cell-evidence'].before(panel);
+    return { panel, status, button };
+  })();
 
   function shortHash(hash) {
     return `${hash.slice(0, 8)}…${hash.slice(-6)}`;
@@ -45,6 +72,51 @@
 
   function selectedCell(frame) {
     return frame.world.cells.find((cell) => cell.cellId === state.selectedCellId) || frame.world.cells[0];
+  }
+
+  function affectedCellIds(frame) {
+    const present = new Set(frame.world.cells.map((cell) => cell.cellId));
+    return frame.outcome.affectedCellIds.filter((cellId) => present.has(cellId));
+  }
+
+  function renderConsequenceNavigator(frame) {
+    const changedIds = affectedCellIds(frame);
+    if (!changedIds.length) {
+      consequence.panel.dataset.state = 'idle';
+      consequence.status.textContent = frame.event
+        ? 'No canonical cell changed in this step.'
+        : 'No canonical input has run yet.';
+      consequence.button.disabled = true;
+      consequence.button.textContent = 'No changed cell to inspect';
+      consequence.button.setAttribute('aria-label', consequence.button.textContent);
+      return;
+    }
+
+    const selectedIndex = changedIds.indexOf(state.selectedCellId);
+    const nextIndex = selectedIndex < 0 ? 0 : (selectedIndex + 1) % changedIds.length;
+    consequence.panel.dataset.state = 'ready';
+    consequence.status.textContent = selectedIndex < 0
+      ? `${changedIds.length} canonical cell${changedIds.length === 1 ? '' : 's'} changed. Current selection is elsewhere.`
+      : `Selected cell is canonical change ${selectedIndex + 1} of ${changedIds.length}.`;
+    consequence.button.disabled = false;
+    consequence.button.textContent = selectedIndex < 0
+      ? `Inspect changed cell · 1/${changedIds.length}`
+      : changedIds.length === 1
+        ? 'Keep changed cell in focus'
+        : `Next changed cell · ${nextIndex + 1}/${changedIds.length}`;
+    consequence.button.setAttribute('aria-label', `${consequence.button.textContent}. Navigation only; canonical truth is unchanged.`);
+  }
+
+  function focusNextChangedCell() {
+    const frame = payload.frames[state.index];
+    const changedIds = affectedCellIds(frame);
+    if (!changedIds.length) return;
+    const selectedIndex = changedIds.indexOf(state.selectedCellId);
+    const nextIndex = selectedIndex < 0 ? 0 : (selectedIndex + 1) % changedIds.length;
+    const targetId = changedIds[nextIndex];
+    selectCell(targetId, { focus: true, announce: false });
+    const target = selectedCell(frame);
+    elements.announcer.textContent = `Canonical change ${nextIndex + 1} of ${changedIds.length}. ${cellLabel(target, frame)}. Navigation only; canonical truth is unchanged.`;
   }
 
   function renderCellInspector(frame) {
@@ -90,6 +162,7 @@
       if (selected && focus) node.focus();
     }
     renderCellInspector(frame);
+    renderConsequenceNavigator(frame);
     if (announce) elements.announcer.textContent = cellLabel(selectedCell(frame), frame);
   }
 
@@ -218,6 +291,7 @@
     renderDots();
     renderGrid(frame);
     renderCellInspector(frame);
+    renderConsequenceNavigator(frame);
     renderEvidence(frame);
 
     if (announce) {
@@ -260,6 +334,12 @@
   elements['world-grid'].addEventListener('keydown', (event) => {
     const cell = event.target.closest('[role="gridcell"]');
     if (!cell) return;
+    if (event.key.toLowerCase() === 'c') {
+      event.preventDefault();
+      event.stopPropagation();
+      focusNextChangedCell();
+      return;
+    }
     const frame = payload.frames[state.index];
     const current = selectedCell(frame);
     let x = current.x;
@@ -293,6 +373,7 @@
     if (event.key === 'End') { event.preventDefault(); stop(); goTo(payload.frames.length - 1); }
     if (event.key === ' ') { event.preventDefault(); play(); }
     if (event.key.toLowerCase() === 'm') { event.preventDefault(); toggleMemory(); }
+    if (event.key.toLowerCase() === 'c') { event.preventDefault(); focusNextChangedCell(); }
   });
 
   const matches = payload.truthComparison.filter((entry) => entry.equal).length;
