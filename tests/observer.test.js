@@ -61,3 +61,18 @@ test('observer grid is one-tab-stop navigable with a truthful selected-cell rece
   assert.match(source, /\['Observed', observedDepth == null \? 'No' : `Depth \$\{observedDepth\}`\]/);
   assert.match(source, /\['Memory', state\.memoryVisible \? `\$\{cell\.memoryCount\} records` : 'Layer hidden'\]/);
 });
+
+test('observer consequence navigator routes only through receipt-declared changed cells', async () => {
+  const source = await readFile(resolve('observer/app.js'), 'utf8');
+  const styles = await readFile(resolve('observer/styles.css'), 'utf8');
+
+  assert.match(source, /function affectedCellIds\(frame\)/);
+  assert.match(source, /frame\.outcome\.affectedCellIds\.filter/);
+  assert.match(source, /function focusNextChangedCell\(\)/);
+  assert.match(source, /selectCell\(targetId, \{ focus: true, announce: false \}\)/);
+  assert.match(source, /Navigation only; canonical truth is unchanged\./);
+  assert.match(source, /event\.key\.toLowerCase\(\) === 'c'/);
+  assert.match(source, /No canonical cell changed in this step\./);
+  assert.match(styles, /\.consequence-nav/);
+  assert.match(styles, /\.consequence-button[\s\S]*min-height: 44px/);
+});
