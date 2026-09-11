@@ -200,6 +200,37 @@ h1 { max-width: 760px; margin-bottom: .7rem; font-size: clamp(2rem, 4.2vw, 4rem)
 .cell-evidence dt { color: var(--muted); font-size: .58rem; }
 .cell-evidence dd { margin: .18rem 0 0; overflow: hidden; color: var(--ink); font: 700 .69rem/1.25 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
 
+.consequence-nav {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: .7rem;
+  align-items: center;
+  margin: .72rem 0 .82rem;
+  padding: .62rem .7rem;
+  border: 1px solid #705c32;
+  border-radius: .42rem;
+  background: rgba(96, 70, 20, .16);
+}
+.consequence-nav[data-state="idle"] { border-color: #30453f; background: rgba(8, 20, 16, .32); }
+.consequence-label { display: block; margin-bottom: .2rem; color: var(--amber); font: 700 .56rem/1.2 ui-monospace, monospace; letter-spacing: .12em; }
+.consequence-nav[data-state="idle"] .consequence-label { color: var(--muted); }
+.consequence-status { margin: 0; color: #d8c9a7; font-size: .69rem; line-height: 1.35; }
+.consequence-nav[data-state="idle"] .consequence-status { color: var(--muted); }
+.consequence-button {
+  min-height: 44px;
+  padding: .55rem .72rem;
+  border: 1px solid #8a6e34;
+  border-radius: .38rem;
+  background: #2b2416;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: .68rem;
+  font-weight: 750;
+}
+.consequence-button:hover:not(:disabled) { border-color: var(--amber); background: #352b18; }
+.consequence-button:focus-visible { outline: 3px solid var(--cyan); outline-offset: 3px; }
+.consequence-button:disabled { border-color: #344740; background: #14201d; color: #72817c; cursor: not-allowed; }
+
 .event-panel { min-width: 0; padding: clamp(1.5rem, 3vw, 2.5rem); background: linear-gradient(150deg, rgba(28, 46, 40, .58), rgba(13, 23, 20, .9)); }
 .step-line { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2.2rem; color: var(--muted); font: 600 .72rem/1 ui-monospace, monospace; }
 .step-dots { display: flex; gap: .35rem; }
@@ -276,6 +307,8 @@ h1 { max-width: 760px; margin-bottom: .7rem; font-size: clamp(2rem, 4.2vw, 4rem)
   .grid-help, .cell-inspector { width: 100%; }
   .grid-key { gap: .45rem .7rem; }
   .cell-evidence { grid-template-columns: repeat(2, 1fr); }
+  .consequence-nav { grid-template-columns: 1fr; }
+  .consequence-button { width: 100%; }
   .event-panel { padding: 1.4rem 1rem; }
   .event-panel h2 { font-size: 1.9rem; }
   .receipt-grid { grid-template-columns: repeat(2, 1fr); }
