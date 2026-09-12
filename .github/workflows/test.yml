@@ -13,11 +13,82 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout exact source head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Require exact source head checkout
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          actual_head_sha="$(git rev-parse HEAD)"
+          printf 'expected source head: %s\nactual checkout: %s\nevent GITHUB_SHA: %s\n' "$EXPECTED_HEAD_SHA" "$actual_head_sha" "$GITHUB_SHA"
+          test "$actual_head_sha" = "$EXPECTED_HEAD_SHA"
+      - name: Require immutable GitHub Action pins
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import re
+
+          workflow = pathlib.Path('.github/workflows/test.yml')
+          violations = []
+          pattern = re.compile(r'^\s*uses:\s*([^@\s]+)@([^\s#]+)')
+          for number, line in enumerate(workflow.read_text(encoding='utf-8').splitlines(), 1):
+              match = pattern.match(line)
+              if not match:
+                  continue
+              action, ref = match.groups()
+              if not re.fullmatch(r'[0-9a-f]{40}', ref):
+                  violations.append(f'{workflow}:{number}: {action}@{ref}')
+          if violations:
+              print('Mutable GitHub Action refs are not admitted in critical CI:')
+              print('\n'.join(violations))
+              raise SystemExit(1)
+          print('All GitHub Action refs are pinned to immutable 40-hex commit SHAs.')
+          PY
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
       - name: Run deterministic harness tests
+        run: npm test
+
+  merge-candidate:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact merge candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Require exact merge candidate lineage
+        env:
+          EXPECTED_MERGE_SHA: ${{ github.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          actual_merge_sha="$(git rev-parse HEAD)"
+          read -r commit_sha base_parent_sha head_parent_sha extra_parent_sha <<EOF
+          $(git rev-list --parents -n 1 HEAD)
+          EOF
+          printf 'expected merge: %s\nactual checkout: %s\nexpected base parent: %s\nactual base parent: %s\nexpected head parent: %s\nactual head parent: %s\n' \
+            "$EXPECTED_MERGE_SHA" "$actual_merge_sha" \
+            "$EXPECTED_BASE_SHA" "$base_parent_sha" \
+            "$EXPECTED_HEAD_SHA" "$head_parent_sha"
+          test "$actual_merge_sha" = "$EXPECTED_MERGE_SHA"
+          test "$commit_sha" = "$EXPECTED_MERGE_SHA"
+          test -n "$base_parent_sha"
+          test -n "$head_parent_sha"
+          test -z "$extra_parent_sha"
+          test "$base_parent_sha" = "$EXPECTED_BASE_SHA"
+          test "$head_parent_sha" = "$EXPECTED_HEAD_SHA"
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Run deterministic harness tests on merge candidate
         run: npm test

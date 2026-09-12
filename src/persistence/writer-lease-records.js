@@ -60,6 +60,25 @@ function validateRecord(record, schema) {
   return { valid: true, reason: null };
 }
 
+export function validateWriterLeaseRecordIdentity(
+  record,
+  expected,
+  reason = 'RECORD_IDENTITY_MISMATCH',
+) {
+  const mismatches = Object.entries(expected ?? {})
+    .filter(([, value]) => value !== undefined)
+    .filter(([field, value]) => record?.[field] !== value)
+    .map(([field, value]) => ({
+      field,
+      expected: value,
+      actual: record?.[field] ?? null,
+    }));
+  if (mismatches.length > 0) {
+    return { valid: false, reason, details: { mismatches } };
+  }
+  return { valid: true, reason: null };
+}
+
 export function writerLeaseTokenPart(token) {
   return String(token).padStart(20, '0');
 }
@@ -184,7 +203,21 @@ export async function loadWriterLeaseRecords(directoryPath, schema, parser) {
     const parsed = parser(name);
     if (!parsed) continue;
     const result = await readWriterLeaseRecord(path.join(directoryPath, name), schema);
-    results.push({ name, parsed, ...result });
+    const filenameIdentity = result.valid
+      ? validateWriterLeaseRecordIdentity(
+        result.record,
+        parsed,
+        'RECORD_FILENAME_IDENTITY_MISMATCH',
+      )
+      : { valid: result.valid, reason: result.reason, details: result.details };
+    results.push({
+      name,
+      parsed,
+      ...result,
+      valid: result.valid && filenameIdentity.valid,
+      reason: result.valid ? filenameIdentity.reason : result.reason,
+      details: result.valid ? filenameIdentity.details : result.details,
+    });
   }
   return results;
 }

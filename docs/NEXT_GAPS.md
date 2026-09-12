@@ -76,7 +76,8 @@ The next work should strengthen deterministic proof rather than add product laye
    - power-loss testing on controlled hardware where practical
 
 9. **External recovery**
-   - trusted lineage or archive when every local snapshot candidate is invalid
+   - deterministic pinned capsule restore now covers a pre-exported checkpoint into a new empty store
+   - trusted-source discovery and explicit adoption of that recovered store remain open
    - corrupt-before memory repair from trusted evidence
    - lossless queue/mailbox overflow lineage
 
@@ -97,7 +98,7 @@ The next work should strengthen deterministic proof rather than add product laye
 - cooperative writer protocol, not hostile filesystem security
 - local supplied milliseconds, not distributed consensus time
 - no universal sudden-power-loss guarantee
-- no complete lineage proof yet
+- no bounded snapshot-lineage retention yet
 - no full caller-mutation freeze yet
 - no performance or massive-world claim yet
 - no AI in v0.01

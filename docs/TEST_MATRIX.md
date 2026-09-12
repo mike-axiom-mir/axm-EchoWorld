@@ -145,10 +145,14 @@ Current leased/unleased writes use `axm.echoworld.atomic-snapshot/v0.02`; checkp
 
 ### Lineage and recovery
 
-- complete parent-chain traversal
-- fencing-token transition audit across generations
+- complete selected parent-chain traversal: covered
+- fencing-token regression and gap audit across generations: covered
+- deterministic portable capsule creation and pinned empty-target restore: covered
+- all ordinary source candidates corrupt before restore: covered
+- capsule/pin tamper rejection and non-overwrite of an occupied target: covered
+- idempotent restore and matching-lineage resume: covered
 - bounded historical retention
-- external trusted recovery when all local candidates are invalid
+- automatic trusted-source discovery and explicit adoption into the original damaged store
 
 ### Platform and durability
 

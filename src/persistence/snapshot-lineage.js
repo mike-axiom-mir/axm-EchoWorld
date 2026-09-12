@@ -63,7 +63,7 @@ async function ensureStore(directory, name, { requireDirectorySync = true } = {}
   return paths;
 }
 
-function validateLineageRecord(record) {
+export function validateSnapshotLineageRecord(record) {
   if (!record || record.schema !== SNAPSHOT_LINEAGE_SCHEMA || typeof record.recordHash !== 'string') {
     return { valid: false, reason: 'SCHEMA_OR_HASH_MISSING' };
   }
@@ -81,7 +81,7 @@ async function readRecord(filePath) {
   try {
     const text = await readFile(filePath, 'utf8');
     const record = JSON.parse(text);
-    return { exists: true, text, record, ...validateLineageRecord(record) };
+    return { exists: true, text, record, ...validateSnapshotLineageRecord(record) };
   } catch (error) {
     if (error?.code === 'ENOENT') {
       return { exists: false, text: null, record: null, valid: false, reason: 'FILE_MISSING' };
@@ -286,6 +286,62 @@ export async function verifySnapshotLineage({
 } = {}) {
   const inspection = await inspectSnapshotLineage({ directory, name, requireDirectorySync });
   return verifySnapshotLineageRecords(inspection.records, { headEnvelope });
+}
+
+export async function restoreSnapshotLineageRecords({
+  directory,
+  name = 'world',
+  records,
+  headEnvelope,
+  requireDirectorySync = true,
+} = {}) {
+  if (!Array.isArray(records) || records.length === 0) {
+    throw new AtomicSnapshotError('SNAPSHOT_LINEAGE_RECORDS_REQUIRED', 'Recovery requires a non-empty lineage chain.');
+  }
+  for (const record of records) {
+    const validation = validateSnapshotLineageRecord(record);
+    if (!validation.valid) {
+      throw new AtomicSnapshotError('SNAPSHOT_LINEAGE_RECORD_CORRUPT', 'Recovery lineage contains an invalid record.', {
+        generation: record?.generation ?? null,
+        snapshotId: record?.snapshotId ?? null,
+        reason: validation.reason,
+      });
+    }
+  }
+  const proposed = verifySnapshotLineageRecords(records, { headEnvelope });
+  if (proposed.branchRecordCount !== 0) {
+    throw new AtomicSnapshotError(
+      'SNAPSHOT_RECOVERY_LINEAGE_NOT_LINEAR',
+      'Recovery lineage must contain exactly the selected parent chain.',
+    );
+  }
+
+  const paths = await ensureStore(directory, name, { requireDirectorySync });
+  for (const record of proposed.chain) {
+    const filePath = recordPath(paths, record.generation, record.snapshotId);
+    const { recordHash: _recordHash, ...unsealed } = record;
+    try {
+      const written = await writeExclusive(filePath, unsealed, { requireDirectorySync });
+      if (written.recordHash !== record.recordHash) {
+        throw new AtomicSnapshotError('SNAPSHOT_LINEAGE_RESTORE_MISMATCH', 'Restored lineage hash changed.');
+      }
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      const existing = await readRecord(filePath);
+      if (
+        !existing.valid
+        || existing.record.lineageRecordId !== record.lineageRecordId
+        || existing.record.recordHash !== record.recordHash
+      ) {
+        throw new AtomicSnapshotError(
+          'SNAPSHOT_LINEAGE_RECORD_CONFLICT',
+          'Recovery target already contains different lineage evidence.',
+          { generation: record.generation, snapshotId: record.snapshotId },
+        );
+      }
+    }
+  }
+  return verifySnapshotLineage({ directory, name, headEnvelope, requireDirectorySync });
 }
 
 export async function recordSnapshotLineage({
