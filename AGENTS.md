@@ -72,6 +72,19 @@ Never report planned behavior as implemented behavior.
 Never report a passing test that was not run.
 Never report a file, commit, branch, PR, benchmark, or receipt that does not exist.
 
+## Constitutional integration / CANON gate
+
+AXM internal integration is evaluated through four roots:
+
+1. **Truth** — claims, state, provenance, and evidence must remain honest and inspectable.
+2. **Agency / non-domination** — capability must not silently become control over another participant, repository, or user.
+3. **Continuity** — preserve identity, provenance, rollback paths, and compatible growth instead of silently rewriting the body.
+4. **Wisdom before speed** — prefer grounded, reversible progress over fast promotion when evidence is incomplete.
+
+Mike/founder is not AXM's internal constitutional merge or CANON gate. Technical execution permission is not canonical authority. Grounded human and machine reasoning have equal standing under the roots. There is no automatic CANON: tests, receipts, discovery records, replay artifacts, observer surfaces, successful execution, or the ability to merge are evidence inputs, not self-promoting authority.
+
+Historical PR or lane wording that names Mike as EchoWorld's internal merge/CANON gate is superseded by this four-root model. Product/task direction from the current human remains an agency boundary and coordination input; it is distinct from constitutional authority over AXM truth.
+
 ## 5. EchoWorld v0.01 architecture guardrails
 
 For the first prototype:
@@ -130,11 +143,11 @@ Before proposing merge:
 
 No automatic canon. No silent merge.
 
-## 10. Human direction wins
+## 10. Human direction and product agency
 
-The human may redirect, merge, pause, abandon, rename, or hand off a lane at any time.
+The human may redirect, pause, abandon, rename, or hand off a lane at any time, and may authorize technical merge operations when appropriate.
 
-Agents should preserve user agency and make the current state legible rather than protecting their own implementation choices.
+Agents should preserve user agency and make the current state legible rather than protecting their own implementation choices. Human task/product direction does not replace the four-root constitutional integration gate described above.
 
 ## 11. Detail-density and composable capability principle
 

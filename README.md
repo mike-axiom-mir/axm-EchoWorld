@@ -6,18 +6,15 @@ EchoWorld is an experimental deterministic persistent-cell world harness.
 
 ## Local consumer boundary
 
-The deterministic event-to-truth core can be packed for another local Node.js
-project without repository-relative imports. The installed `echoworld-replay`
-command creates and independently re-executes portable event-stream receipts.
-See [CONSUMER.md](CONSUMER.md). No registry release is published.
+The deterministic event-to-truth core can be packed for another local Node.js project without repository-relative imports. The installed `echoworld-replay` command creates and independently re-executes portable event-stream receipts. See [CONSUMER.md](CONSUMER.md). No registry release is published.
 
-## Current lane
+EchoWorld also exposes one source-backed `EXPERIMENTAL` public capability declaration through the repository discovery contract. Discovery is evidence only: it does not execute, install, automatically select, merge, or canonize the capability.
 
-Implementation work remains isolated to:
+## Integration state
 
-`chatgpt/echoworld-lane-01`
+The previously stacked v0.01 core, persistence/recovery, writer-lease, portable replay, discovery, CI-identity, and observer/experience lanes have been consolidated onto `main`.
 
-See `AGENTS.md` for the one-chat/one-lane rule.
+Future implementation work still follows the one-chat/one-lane coordination rule in `AGENTS.md`. Lane ownership and technical merge permission are coordination mechanisms, not constitutional authority.
 
 ## Implemented proof surface
 
@@ -33,8 +30,12 @@ See `AGENTS.md` for the one-chat/one-lane rule.
 - integrity-wrapped atomic complete-world snapshots
 - primary / backup / temp / recovery-temp candidate inspection
 - process-exit recovery across save and recovery-promotion stages
-- append-only single-writer lease records
-- monotonic fencing tokens
+- complete selected snapshot-parent and fencing lineage verification
+- deterministic portable recovery capsules containing one verified snapshot and its selected lineage
+- caller-pinned, empty-target restore when ordinary local candidates are unusable
+- append-only single-writer lease records with monotonic fencing tokens
+- claim/activation/heartbeat/base/release linkage to the originating lease identity
+- preservation of invalid raw lease evidence during bounded archival
 - provisional claims, activation, heartbeat renewal, base records, and durable release records
 - stale-owner takeover after lease expiry
 - checkpoint admission bound to writer ID, lease ID, fencing token, durable base, canonical hash, and operational hash
@@ -44,15 +45,19 @@ See `AGENTS.md` for the one-chat/one-lane rule.
 - current-owner checks at persistence authority boundaries
 - stale-base rejection before primary installation
 - crash-tested lease acquisition and release recovery
-- complete selected snapshot-parent and fencing lineage verification
-- deterministic portable recovery capsules containing one verified snapshot and its selected lineage
-- caller-pinned, empty-target restore when ordinary local candidates are unusable
+- portable offline event-stream replay package with independent deterministic receipt verification
+- exact-source and exact synthetic merge-candidate CI identity checks
+- immutable GitHub Action commit pins in the critical EchoWorld test workflow
+- source-backed public capability discovery with a pinned Discovery Buddy interoperability bridge
+- offline non-authoritative causal observer generated from real core receipts
+- directly inspectable 16x16 cell grid with keyboard/assistive semantics
+- receipt-declared consequence navigation across canonical changed cells without browser mutation authority
 
 ## Core authority boundary
 
 Canonical physical truth contains world revision, actor positions, and cell physical state.
 
-Memory, perception, wake state, specialists, handoff guards, scheduler jobs, deferred mailboxes, compaction journals, lease records, fencing tokens, checkpoint receipts, candidate filenames, and persistence receipts do not become physical truth authority merely by existing.
+Memory, perception, wake state, specialists, handoff guards, scheduler jobs, deferred mailboxes, compaction journals, lease records, fencing tokens, checkpoint receipts, candidate filenames, persistence receipts, replay receipts, discovery records, and observer state do not become physical truth authority merely by existing.
 
 A failed canonical transition creates no canonical memory. An accepted handoff may create only an `OBSERVED` memory. Specialist finish order cannot grant mutation authority.
 
@@ -88,6 +93,8 @@ Checkpoint admissions include:
 
 A higher fencing token makes an older **leased** temp or recovery-temp ineligible for recovery promotion. A stale lease cannot use the leased checkpoint API after takeover.
 
+Closed lease evidence can be archived under the tested bounded archival contract. Invalid raw records are preserved as evidence instead of being silently compacted away, and the active fencing token is protected from archival.
+
 ## Checkpoint barrier
 
 By default, a checkpoint is admitted only when every cell is in `DORMANT` or explicit `REPAIR` state.
@@ -112,33 +119,34 @@ npm run benchmark
 npm run observer:build
 ```
 
-Open `observer/index.html` directly in a browser to step through a deterministic
-input → truth → observation proof. The generated observer is an offline,
-non-authoritative projection of real core receipts; it does not simulate or
-mutate canonical state in the browser.
+Open `observer/index.html` directly in a browser to step through a deterministic input → truth → observation proof. The generated observer is an offline, non-authoritative projection of real core receipts; it does not simulate or mutate canonical state in the browser.
 
 ## Current evidence
 
-GitHub Actions independently executed the implementation head on Node.js v22.23.2 and Ubuntu 24.04:
+The final consolidated observer/discovery source head used for the last capability integration was independently exercised by GitHub Actions:
 
-- **85 tests**
-- **85 passed**
-- **0 failed**
-- **0 cancelled**
-- **0 skipped**
-- implementation head `6455d5dd4dc2d0609ab13ca38e096ca2fee63fc9`
-- run `33405590474`
-- job `99532258471`
-- merge ref `bc2ac474b60bd91e3574e5e597c44d1287c5113b`
-- test duration `2086.800059 ms`
-- conclusion `success`
+- **EchoWorld v0.01 tests run `34690578038`: SUCCESS**
+- exact source-head job: PASS
+- exact synthetic merge-candidate job: PASS
+- immutable-action-pin gate: PASS
+- deterministic repository suite: **138/138 PASS**, 0 failed
+- source head: `275c78320b2b354da87f458d67f35bc537af3b42`
+- **Public capability discovery run `34690578032`: SUCCESS**
+- generated discovery contract: PASS on Node 20 and Node 22
+- focused discovery regressions: PASS
+- complete deterministic suite inside discovery gate: PASS
+- real executable capability descriptor: PASS
+- pinned Discovery Buddy public scan/verify bridge: PASS
 
-The 18 new writer/checkpoint tests verify active-owner exclusion, simultaneous cooperative acquisition, monotonic tokens, renewal, stale takeover, durable release, base advancement, stale-base rejection, checkpoint quiescence, operational hashing, checkpoint tamper detection, fencing of older leased temps, mid-save lease expiry, non-cooperating base-change detection, and process-exit recovery at lease claim/activation/base/release stages.
+The observer Experience layer also retains its earlier Chromium evidence for desktop/mobile cell inspection and receipt-declared consequence navigation. That visual evidence is presentation evidence only; the browser does not become canonical truth authority.
 
 See:
 
 - `docs/WRITER_LEASE.md`
 - `docs/ATOMIC_PERSISTENCE.md`
+- `docs/PORTABLE_RECOVERY_CAPSULE.md`
+- `CONSUMER.md`
+- `DISCOVERY.md`
 - `evidence/writer-lease-fencing-latest.json`
 - `evidence/test-receipt-latest.json`
 - `evidence/atomic-snapshot-recovery-latest.json`
@@ -146,17 +154,17 @@ See:
 
 ## Honest boundary
 
-This is a **cooperative local-filesystem writer-fencing proof** on the tested Ubuntu CI environment.
+This remains an **experimental cooperative local-filesystem writer-fencing and deterministic-world proof** on the tested environments.
 
 It does not prove that a hostile or buggy process bypassing the lease API cannot edit snapshot files directly. A durable-base check detects tested non-cooperating base changes before leased primary installation, but it is not an operating-system security boundary.
 
 Lease expiry currently depends on supplied millisecond time. Tests use explicit deterministic values, but cross-machine clock skew, clock rollback, suspended processes, and distributed lease semantics remain unproven.
 
-Append-only claim, heartbeat, base, and release records currently have no garbage-collection or archival protocol.
+Lease archival is now implemented for the tested local protocol, including fail-closed invalid-record preservation. That does not establish a universal long-term retention policy, distributed garbage collection, or hostile-filesystem security.
 
 Also unproven:
 
-- sudden power-loss and storage-controller durability
+- sudden power-loss and storage-controller durability beyond the tested interruption points
 - every filesystem and operating system
 - network filesystem or cross-device rename semantics
 - hostile multi-process enforcement
