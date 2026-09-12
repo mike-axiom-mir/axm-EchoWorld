@@ -3,6 +3,7 @@ import {
   inspectLeaseClock,
   observeLeaseClock,
 } from './lease-clock.js';
+import { AtomicSnapshotError } from './atomic-types.js';
 import {
   highestLeaseFencingToken,
   readLeaseLedgerArchiveState,
@@ -14,12 +15,43 @@ import {
   parseWriterLeaseHeartbeat,
   parseWriterLeaseToken,
   readWriterLeaseRecord,
+  validateWriterLeaseRecordIdentity,
   writerLeaseExpiryLogical,
   writerLeaseIdFor,
   writerLeaseProvisionalExpiryLogical,
   writerLeaseRecordPaths,
   writeExclusiveWriterLeaseRecord,
 } from './writer-lease-records.js';
+
+function bindRecordsToClaims(records, claims) {
+  const claimsByToken = new Map(
+    claims
+      .filter((item) => item.valid)
+      .map((item) => [item.record.fencingToken, item.record]),
+  );
+  return records.map((item) => {
+    if (!item.valid) return item;
+    const claim = claimsByToken.get(item.record.fencingToken);
+    if (!claim) {
+      return {
+        ...item,
+        valid: false,
+        reason: 'RECORD_CLAIM_MISSING',
+        details: { fencingToken: item.record.fencingToken },
+      };
+    }
+    const linkage = validateWriterLeaseRecordIdentity(
+      item.record,
+      {
+        fencingToken: claim.fencingToken,
+        writerId: claim.writerId,
+        leaseId: claim.leaseId,
+      },
+      'RECORD_CLAIM_IDENTITY_MISMATCH',
+    );
+    return linkage.valid ? item : { ...item, ...linkage };
+  });
+}
 
 function candidateSummary(candidate, logicalNowMs) {
   return {
@@ -108,7 +140,15 @@ export async function inspectWriterLeaseStore({
   }
 
   const paths = await ensureWriterLeaseStore(directory, name, { requireDirectorySync });
-  const [claims, activations, heartbeats, bases, releases, archiveState, clockState] = await Promise.all([
+  const [
+    claims,
+    loadedActivations,
+    loadedHeartbeats,
+    loadedBases,
+    loadedReleases,
+    archiveState,
+    clockState,
+  ] = await Promise.all([
     loadWriterLeaseRecords(paths.claimsDir, WRITER_LEASE_SCHEMAS.claim, (value) => {
       const token = parseWriterLeaseToken(value, 'claim');
       return token === null ? null : { fencingToken: token };
@@ -129,13 +169,17 @@ export async function inspectWriterLeaseStore({
     readLeaseLedgerArchiveState({ directory, name, requireDirectorySync }),
     inspectLeaseClock({ directory, name, requireDirectorySync }),
   ]);
+  const activations = bindRecordsToClaims(loadedActivations, claims);
+  const heartbeats = bindRecordsToClaims(loadedHeartbeats, claims);
+  const bases = bindRecordsToClaims(loadedBases, claims);
+  const releases = bindRecordsToClaims(loadedReleases, claims);
 
   const candidates = [];
   for (const claimFile of claims) {
     if (!claimFile.valid) continue;
     const claim = claimFile.record;
     const activationFile = activations.find(
-      (item) => item.valid && item.parsed.fencingToken === claim.fencingToken,
+      (item) => item.valid && item.record.fencingToken === claim.fencingToken,
     );
     const matchingHeartbeats = heartbeats
       .filter((item) => (
@@ -148,13 +192,11 @@ export async function inspectWriterLeaseStore({
     const latestHeartbeat = matchingHeartbeats[0]?.record ?? null;
     const baseFile = bases.find((item) => (
       item.valid
-      && item.parsed.fencingToken === claim.fencingToken
-      && item.record.leaseId === claim.leaseId
+      && item.record.fencingToken === claim.fencingToken
     ));
     const releaseFile = releases.find((item) => (
       item.valid
-      && item.parsed.fencingToken === claim.fencingToken
-      && item.record.leaseId === claim.leaseId
+      && item.record.fencingToken === claim.fencingToken
     ));
     const activation = activationFile?.record ?? null;
     const expiryRecord = latestHeartbeat ?? activation;
@@ -299,7 +341,30 @@ export async function writeWriterLeaseReleaseRecord({
     return await writeExclusiveWriterLeaseRecord(filePath, record, { requireDirectorySync });
   } catch (error) {
     if (error?.code !== 'EEXIST') throw error;
-    return (await readWriterLeaseRecord(filePath, WRITER_LEASE_SCHEMAS.release)).record;
+    const existing = await readWriterLeaseRecord(filePath, WRITER_LEASE_SCHEMAS.release);
+    const linkage = existing.valid
+      ? validateWriterLeaseRecordIdentity(
+        existing.record,
+        {
+          fencingToken: lease.fencingToken,
+          writerId: lease.writerId,
+          leaseId: lease.leaseId,
+        },
+        'RECORD_CLAIM_IDENTITY_MISMATCH',
+      )
+      : existing;
+    if (!existing.valid || !linkage.valid) {
+      throw new AtomicSnapshotError(
+        'WRITER_LEASE_RELEASE_CONFLICT',
+        'The occupied release record does not belong to this writer claim.',
+        {
+          fencingToken: lease.fencingToken,
+          reason: linkage.reason,
+          details: linkage.details ?? {},
+        },
+      );
+    }
+    return existing.record;
   }
 }
 
