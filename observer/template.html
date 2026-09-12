@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>EchoWorld · Causal Observer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#event-title">Skip to current event</a>
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">ECHOWORLD / DETERMINISTIC PROOF</p>
+      <h1>Follow one cause through the world.</h1>
+      <p class="lede">Input becomes canonical truth first. Memory and handoffs can observe that truth, but cannot rewrite it.</p>
+    </div>
+    <div class="boundary" role="note">
+      <span class="boundary-mark" aria-hidden="true"></span>
+      <div><strong>Authority boundary</strong><span id="authority-copy"></span></div>
+    </div>
+  </header>
+
+  <main>
+    <section class="stage" aria-label="EchoWorld grid and timeline">
+      <div class="world-panel">
+        <div class="world-toolbar">
+          <div>
+            <p class="section-label">CANONICAL WORLD</p>
+            <p class="world-meta"><span id="revision">Revision 0</span><code id="world-hash"></code></p>
+          </div>
+          <button id="memory-toggle" class="layer-toggle" type="button" aria-pressed="true">
+            <span class="layer-dot" aria-hidden="true"></span>
+            Memory layer <b>ON</b>
+          </button>
+        </div>
+        <div class="grid-wrap">
+          <p id="grid-help" class="grid-help">Select a cell to inspect it. Arrow keys move across the world; Home/End move across a row.</p>
+          <div id="world-grid" class="world-grid" role="grid" aria-label="16 by 16 EchoWorld canonical world" aria-describedby="grid-help cell-inspector" aria-rowcount="16" aria-colcount="16"></div>
+          <div class="grid-key" aria-hidden="true">
+            <span><i class="key-actor"></i> Actor</span>
+            <span><i class="key-structure"></i> Structure</span>
+            <span><i class="key-truth"></i> Truth changed</span>
+            <span><i class="key-observed"></i> Observed</span>
+          </div>
+          <section id="cell-inspector" class="cell-inspector" aria-labelledby="cell-title" aria-live="polite">
+            <div class="cell-inspector-heading">
+              <div>
+                <p class="section-label">SELECTED CELL</p>
+                <h3 id="cell-title">Cell 2, 1</h3>
+              </div>
+              <code id="cell-id">C_2_1</code>
+            </div>
+            <p id="cell-summary" class="cell-summary">Bridge structure · integrity 100</p>
+            <dl id="cell-evidence" class="cell-evidence"></dl>
+          </section>
+        </div>
+      </div>
+
+      <aside class="event-panel" aria-labelledby="event-title">
+        <div class="step-line">
+          <span id="step-count">Step 0 / 5</span>
+          <div id="step-dots" class="step-dots" aria-hidden="true"></div>
+        </div>
+        <p id="event-kicker" class="event-kicker">BEFORE INPUT</p>
+        <h2 id="event-title" tabindex="-1">The world is ready</h2>
+        <p id="event-intent" class="event-intent">Two actors and one intact bridge exist in canonical state.</p>
+        <pre id="event-input" class="event-input" aria-label="Current input">No event submitted</pre>
+
+        <div id="outcome-card" class="outcome-card neutral">
+          <span id="outcome-icon" class="outcome-icon" aria-hidden="true">○</span>
+          <div><strong id="outcome-title">Awaiting input</strong><span id="outcome-copy">Revision and hash are unchanged.</span></div>
+        </div>
+
+        <div class="flow" aria-label="Causal flow">
+          <div class="flow-node"><span>1</span><div><b>INPUT</b><small id="flow-input">None</small></div></div>
+          <i aria-hidden="true"></i>
+          <div class="flow-node"><span>2</span><div><b>TRUTH</b><small id="flow-truth">No merge</small></div></div>
+          <i aria-hidden="true"></i>
+          <div class="flow-node"><span>3</span><div><b>OBSERVATION</b><small id="flow-observation">No handoff</small></div></div>
+        </div>
+
+        <div class="receipt-grid">
+          <div><span>Truth receipts</span><strong id="truth-count">0</strong></div>
+          <div><span>Observed cells</span><strong id="observed-count">0</strong></div>
+          <div><span>Memory writes</span><strong id="memory-count">0</strong></div>
+          <div><span>Queue peak</span><strong id="queue-count">—</strong></div>
+        </div>
+
+        <details class="evidence">
+          <summary>Inspect exact evidence</summary>
+          <dl id="evidence-list"></dl>
+        </details>
+      </aside>
+    </section>
+
+    <nav class="transport" aria-label="Timeline controls">
+      <button id="previous" type="button"><span aria-hidden="true">←</span> Previous</button>
+      <button id="play" class="play" type="button"><span id="play-icon" aria-hidden="true">▶</span><span id="play-label">Play proof</span></button>
+      <button id="next" type="button">Next <span aria-hidden="true">→</span></button>
+      <p id="keyboard-help">Keys: ←/→ step · Space play/pause · M memory</p>
+    </nav>
+
+    <section class="truth-check" aria-labelledby="truth-check-title">
+      <div>
+        <p class="section-label">INVARIANCE CHECK</p>
+        <h2 id="truth-check-title">Memory can disappear. Truth stays identical.</h2>
+      </div>
+      <div id="invariance-status" class="invariance-status"><span aria-hidden="true">✓</span><div><strong>6 / 6 hashes match</strong><small>Memory ON = Memory OFF at every step</small></div></div>
+    </section>
+  </main>
+
+  <div id="announcer" class="sr-only" aria-live="polite"></div>
+  <script>window.__ECHOWORLD_DEMO__ = /*__ECHOWORLD_DEMO__*/;</script>
+  <script src="app.js" defer></script>
+</body>
+</html>

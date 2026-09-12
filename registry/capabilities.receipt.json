@@ -12,7 +12,7 @@
   "sources": [
     {
       "path": "package.json",
-      "git_blob_sha1": "da65deaa15ba0afb5ee9983658cd3f226c5cdec5"
+      "git_blob_sha1": "b9e1e1eb6e427874d92f1d207ea4bc2621c778d6"
     },
     {
       "path": "src/capability.js",
@@ -49,5 +49,5 @@
     "merge_authority": false,
     "canon_authority": false
   },
-  "receipt_sha256": "9f86c205e3d5f4c5db18d015dd7f670b0d0cf6c0419da022949778dc99069935"
+  "receipt_sha256": "06f6471f568d5d83f0c57df00c1a2edf7d18574f8dfe5735935b4144c99c605e"
 }
