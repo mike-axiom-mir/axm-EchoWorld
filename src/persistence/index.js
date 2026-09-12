@@ -6,4 +6,5 @@ export * from './lease-ledger-archive.js';
 export * from './leased-checkpoint.js';
 export * from './platform-lock.js';
 export * from './snapshot-lineage.js';
+export * from './snapshot-recovery-capsule.js';
 export * from './writer-lease.js';

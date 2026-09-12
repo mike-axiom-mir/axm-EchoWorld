@@ -4,6 +4,13 @@ EchoWorld is an experimental deterministic persistent-cell world harness.
 
 **v0.01 question:** can small persistent world cells retain bounded experience and spawn only relevant temporary specialist work while canonical physical truth remains deterministic, replayable, and protected from experiential authority?
 
+## Local consumer boundary
+
+The deterministic event-to-truth core can be packed for another local Node.js
+project without repository-relative imports. The installed `echoworld-replay`
+command creates and independently re-executes portable event-stream receipts.
+See [CONSUMER.md](CONSUMER.md). No registry release is published.
+
 ## Current lane
 
 Implementation work remains isolated to:
@@ -37,6 +44,9 @@ See `AGENTS.md` for the one-chat/one-lane rule.
 - current-owner checks at persistence authority boundaries
 - stale-base rejection before primary installation
 - crash-tested lease acquisition and release recovery
+- complete selected snapshot-parent and fencing lineage verification
+- deterministic portable recovery capsules containing one verified snapshot and its selected lineage
+- caller-pinned, empty-target restore when ordinary local candidates are unusable
 
 ## Core authority boundary
 
@@ -151,8 +161,8 @@ Also unproven:
 - network filesystem or cross-device rename semantics
 - hostile multi-process enforcement
 - fully atomic in-memory mutation plus durable checkpoint commit
-- complete parent-chain verification
-- external recovery when all local candidates are corrupt
+- bounded snapshot-lineage retention
+- automatic external recovery discovery or in-place adoption when local candidates are corrupt
 - production-scale performance and massive-world scaling
 - realistic physical propagation
 - genuine concurrent cell execution and scheduler fairness

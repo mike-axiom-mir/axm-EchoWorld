@@ -155,9 +155,11 @@ The previous atomic snapshot process-exit boundary remains unchanged.
 
 ## Snapshot lineage boundary
 
-A snapshot records its immediate parent ID, and a leased checkpoint records the base it admitted.
+A snapshot records its immediate parent ID, and a leased checkpoint records the base it admitted. The selected complete parent chain and historical fencing progression are now traversed and verified.
 
-The system does not yet traverse the complete parent graph, verify every historical fencing transition, retain an unbounded lineage, or detect deletion of older valid generations beyond the candidates currently stored.
+The system does not yet bound snapshot-lineage storage, authenticate records against a separate signer, or detect deletion of an entire alternative branch that is not part of the selected chain.
+
+Portable recovery is explicit rather than automatic. A capsule is deterministic and self-verifying, but restore additionally requires the caller to supply its expected capsule ID. Restore writes only to an empty store namespace (or resumes/replays the same pinned restore); it does not overwrite or delete damaged local evidence.
 
 ## Authority boundary
 
@@ -193,11 +195,11 @@ GitHub Actions implementation checkpoint:
 - process-exit tests during heartbeat write and leased snapshot authority boundaries;
 - stronger platform lock or persisted compare-and-swap beneath the cooperative protocol;
 - immutable mutation session / checkpoint freeze semantics;
-- complete parent-chain and fencing-transition verification;
+- bounded snapshot-lineage retention;
 - high-contention and fairness tests;
 - operating-system and filesystem matrix;
 - controlled sudden-power-loss experiments;
-- external recovery when every local snapshot candidate is invalid;
+- automatic recovery-source discovery and explicit adoption of a recovered store;
 - dedicated lease/checkpoint performance and storage-growth benchmarks.
 
 ## Not proven
@@ -210,7 +212,8 @@ Do not claim that EchoWorld:
 - provides kernel-enforced compare-and-swap installation;
 - freezes all caller mutation during save;
 - bounds lease-ledger storage growth;
-- verifies complete snapshot/fencing lineage;
+- bounds snapshot-lineage storage growth;
+- authenticates capsule authorship or discovers trusted recovery sources;
 - is universally power-loss-safe;
 - is portable across every filesystem;
 - is production-scale or massive-world proven;

@@ -3,6 +3,57 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "description": "Deterministic event-to-truth world core with bounded non-authoritative memory.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mike-axiom-mir/axm-EchoWorld.git"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "bin": {
+    "echoworld-replay": "./scripts/portable-replay-cli.js"
+  },
+  "files": [
+    "src/core",
+    "src/handoff",
+    "src/memory",
+    "src/specialists",
+    "src/capability.js",
+    "src/index.js",
+    "src/portable-replay.js",
+    "scripts/portable-replay-cli.js",
+    "CONSUMER.md",
+    "LICENSE",
+    "THIRD_PARTY.json"
+  ],
+  "axmCapability": {
+    "schema": "axm.capability/v1",
+    "id": "axm.echoworld.deterministic-event-replay",
+    "version": "0.1.0",
+    "status": "EXPERIMENTAL",
+    "runtime": {
+      "kind": "node",
+      "minimumVersion": "20",
+      "networkRequired": false,
+      "dependencies": []
+    },
+    "entrypoints": {
+      "library": ".",
+      "command": "echoworld-replay",
+      "discoveryCommand": "echoworld-replay describe"
+    },
+    "contracts": {
+      "input": "axm.echoworld.event-stream/v0.01",
+      "receipt": "axm.echoworld.portable-replay/v0.01",
+      "verification": "axm.echoworld.portable-replay-verification/v0.01"
+    },
+    "authority": {
+      "canonical": false,
+      "automaticMerge": false
+    }
+  },
   "scripts": {
     "test": "node --test",
     "benchmark": "node scripts/benchmark-scheduler.js",

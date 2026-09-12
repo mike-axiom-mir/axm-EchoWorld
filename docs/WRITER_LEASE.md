@@ -67,6 +67,14 @@ Records are created with exclusive filenames, written with mode `0600`, fsynced,
 
 Every record includes a deterministic SHA-256 `recordHash` over its stable identity fields.
 
+Record self-integrity is necessary but is not enough for lease authority. Admission also
+binds the fencing token (and heartbeat sequence) to the record filename, then binds every
+activation, heartbeat, durable-base, and release record to the exact originating claim's
+writer ID, lease ID, and fencing token. A self-consistent record with foreign or displaced
+identity is reported in `invalidRecords` and cannot activate, extend, base, release, or
+authorize archival of that claim. An occupied foreign release path also fails the owner's
+release call explicitly instead of returning a false release receipt.
+
 The ledger is append-only in the current design. Tokens and old records are not reused.
 
 ## Fencing-token allocation
