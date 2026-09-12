@@ -1,0 +1,121 @@
+{
+  "schema": "axm.echoworld.test-receipt/v0.06",
+  "lane": "chatgpt/echoworld-lane-01",
+  "date": "2026-08-31",
+  "environment": {
+    "runtime": "Node.js v22.23.2",
+    "platform": "GitHub Actions Ubuntu 24.04.4",
+    "command": "npm test"
+  },
+  "result": {
+    "tests": 85,
+    "passed": 85,
+    "failed": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0,
+    "durationMs": 2086.800059
+  },
+  "previousCheckpoint": {
+    "schema": "axm.echoworld.test-receipt/v0.05",
+    "tests": 67,
+    "passed": 67,
+    "scope": [
+      "canonical truth equivalence and failed-transition boundaries",
+      "bounded CANONICAL and OBSERVED memory",
+      "specialist matching and deterministic conflict preservation",
+      "handoff guards and deterministic queued scheduling",
+      "recipient SOUND lifecycle",
+      "persistent deferred delivery",
+      "interruption-safe memory compaction",
+      "integrity-wrapped atomic snapshot save and recovery",
+      "nine atomic snapshot process-exit stages"
+    ]
+  },
+  "newVerifiedTests": [
+    "one active writer lease blocks a second cooperative writer",
+    "simultaneous cooperative claims elect exactly one active writer",
+    "release permits immediate acquisition with a strictly higher fencing token",
+    "heartbeat renewal extends ownership and later stale takeover fences the old writer",
+    "an invalid burned claim cannot become active and the next token remains monotonic",
+    "leased checkpoint embeds fencing evidence and advances the lease base",
+    "a stale checkpoint base is rejected even while the same lease remains current",
+    "a stale owner cannot checkpoint after a higher fencing token takes over",
+    "checkpoint barrier rejects an unquiesced receiving cell",
+    "checkpoint operational hash covers pending queues, mailboxes, and compaction journals",
+    "checkpoint tampering invalidates the deterministic snapshot identity",
+    "new fencing token discards an older leased temp that never reached primary commit",
+    "lease expiry during save prevents primary installation and the next owner fences the temp",
+    "leased checkpoint refuses a durable base changed by a non-cooperating writer",
+    "stale-owner recovery succeeds after process exit at AFTER_CLAIM_FSYNC",
+    "stale-owner recovery succeeds after process exit at AFTER_ACTIVATION_FSYNC",
+    "stale-owner recovery succeeds after process exit at AFTER_BASE_RECORD_FSYNC",
+    "process exit after durable release permits immediate replacement"
+  ],
+  "writerLease": {
+    "evidencePath": "evidence/writer-lease-fencing-latest.json",
+    "recordSchemas": {
+      "claim": "axm.echoworld.writer-lease-claim/v0.01",
+      "activation": "axm.echoworld.writer-lease-activation/v0.01",
+      "heartbeat": "axm.echoworld.writer-lease-heartbeat/v0.01",
+      "base": "axm.echoworld.writer-lease-base/v0.01",
+      "release": "axm.echoworld.writer-lease-release/v0.01"
+    },
+    "checkpointSchema": "axm.echoworld.checkpoint-admission/v0.01",
+    "snapshotSchema": "axm.echoworld.atomic-snapshot/v0.02",
+    "legacySnapshotSchema": "axm.echoworld.atomic-snapshot/v0.01",
+    "verified": [
+      "monotonic append-only fencing tokens",
+      "one current cooperative owner",
+      "heartbeat renewal and stale-owner takeover",
+      "durable release and higher-token replacement",
+      "checkpoint admission bound to current writer and durable base",
+      "quiescence barrier",
+      "selected operational coordination hash",
+      "stale-base and stale-owner rejection",
+      "older leased transient fencing",
+      "lease record process-exit recovery"
+    ]
+  },
+  "atomicPersistence": {
+    "currentEnvelopeSchema": "axm.echoworld.atomic-snapshot/v0.02",
+    "legacyEnvelopeSchema": "axm.echoworld.atomic-snapshot/v0.01",
+    "currentReceiptSchema": "axm.echoworld.atomic-snapshot-receipt/v0.02",
+    "currentInspectionSchema": "axm.echoworld.atomic-snapshot-inspection/v0.02",
+    "candidateRoles": [
+      "primary",
+      "backup",
+      "temp",
+      "recoveryTemp"
+    ],
+    "selection": "Highest eligible valid generation wins; different identities at one highest eligible generation fail closed.",
+    "composition": "Checkpoint evidence is validated against the unrecovered payload before normal non-canonical recovery runs."
+  },
+  "authorityBoundary": {
+    "canonicalMutationApplied": false,
+    "statement": "Lease and checkpoint coordination may permit or reject persistence but does not define or mutate canonical physical rules."
+  },
+  "benchmark": {
+    "path": "evidence/scheduler-benchmark-latest.json",
+    "schema": "axm.echoworld.scheduler-benchmark/v0.02",
+    "boundary": "The existing benchmark does not measure writer lease, checkpoint admission, fencing, fsync, or contention performance."
+  },
+  "claimBoundary": [
+    "Writer fencing applies to cooperating writers using the lease APIs, not hostile raw filesystem writers.",
+    "Lease time uses supplied finite milliseconds; distributed clock safety is not established.",
+    "The final lease/base check and primary rename are not one kernel-enforced compare-and-swap operation.",
+    "The operational hash covers selected coordination projections; payloadHash protects the complete serialized world.",
+    "The append-only lease ledger currently has no verified archival or garbage collection.",
+    "Checkpoint admission does not freeze arbitrary caller mutation throughout asynchronous save.",
+    "Complete parent and fencing lineage verification is not implemented.",
+    "Process-exit recovery is not universal sudden-power-loss evidence.",
+    "No production-scale, massive-world, multiplayer, independent-worker, emergent-story, or AI claim is established."
+  ],
+  "githubActions": {
+    "codeHeadSha": "6455d5dd4dc2d0609ab13ca38e096ca2fee63fc9",
+    "mergeRefSha": "bc2ac474b60bd91e3574e5e597c44d1287c5113b",
+    "runId": 33405590474,
+    "jobId": 99532258471,
+    "conclusion": "success"
+  }
+}

@@ -1,0 +1,145 @@
+{
+  "schema": "axm.echoworld.atomic-snapshot-recovery-evidence/v0.01",
+  "lane": "chatgpt/echoworld-lane-01",
+  "date": "2026-08-31",
+  "implementation": {
+    "headSha": "149b000183d23639bfb7d8926d942f92b095a310",
+    "modules": [
+      "src/persistence/atomic-types.js",
+      "src/persistence/snapshot-envelope.js",
+      "src/persistence/snapshot-candidates.js",
+      "src/persistence/fs-durability.js",
+      "src/persistence/recovery.js",
+      "src/persistence/atomic-store.js"
+    ],
+    "envelopeSchema": "axm.echoworld.atomic-snapshot/v0.01",
+    "receiptSchema": "axm.echoworld.atomic-snapshot-receipt/v0.01",
+    "inspectionSchema": "axm.echoworld.atomic-snapshot-inspection/v0.01"
+  },
+  "protocol": {
+    "candidateRoles": [
+      "primary",
+      "backup",
+      "temp",
+      "recoveryTemp"
+    ],
+    "selection": {
+      "rule": "highest valid generation wins",
+      "identicalHighestGenerationPriority": [
+        "primary",
+        "temp",
+        "recoveryTemp",
+        "backup"
+      ],
+      "differentIdentitySameHighestGeneration": "SNAPSHOT_GENERATION_CONFLICT",
+      "noValidCandidate": "NO_VALID_SNAPSHOT"
+    },
+    "envelopeFields": [
+      "schema",
+      "generation",
+      "parentSnapshotId",
+      "worldSchema",
+      "canonicalHash",
+      "payloadHash",
+      "payloadEncoding",
+      "payload",
+      "snapshotId"
+    ],
+    "validation": [
+      "JSON parse",
+      "envelope schema",
+      "positive integer generation",
+      "UTF-8 JSON payload shape",
+      "payload SHA-256",
+      "deterministic snapshot ID",
+      "world reload",
+      "world schema",
+      "canonical hash"
+    ],
+    "saveSequence": [
+      "recover existing valid store",
+      "write temp",
+      "fsync temp",
+      "write and fsync backup temp when primary exists",
+      "rename backup temp to backup",
+      "fsync directory",
+      "rename temp to primary",
+      "fsync directory",
+      "verify installed primary",
+      "clean transient paths"
+    ],
+    "recoverySequence": [
+      "inspect every candidate",
+      "select highest non-conflicting valid generation",
+      "write and fsync recovery temp",
+      "rename recovery temp to primary",
+      "fsync directory",
+      "verify promoted primary",
+      "clean transient paths"
+    ]
+  },
+  "abruptProcessExit": {
+    "method": "Child Node.js process calls process.exit(86) at an exact protocol stage. A later process performs recovery.",
+    "saveStages": [
+      "AFTER_TEMP_WRITE",
+      "AFTER_TEMP_FSYNC",
+      "AFTER_BACKUP_RENAME",
+      "AFTER_BACKUP_DIRECTORY_FSYNC",
+      "AFTER_PRIMARY_RENAME",
+      "AFTER_PRIMARY_DIRECTORY_FSYNC"
+    ],
+    "recoveryStages": [
+      "AFTER_RECOVERY_TEMP_FSYNC",
+      "AFTER_RECOVERY_PRIMARY_RENAME",
+      "AFTER_RECOVERY_DIRECTORY_FSYNC"
+    ],
+    "expectedRecoveredState": {
+      "generation": 2,
+      "actorA.x": 2,
+      "worldRevision": 1,
+      "canonicalHashMatchesEnvelope": true,
+      "installedPrimaryValid": true
+    },
+    "result": "All nine abrupt process-exit stage tests passed."
+  },
+  "additionalVerifiedCases": [
+    "generation chain records immediate parent snapshot ID",
+    "previous primary remains as valid backup",
+    "corrupt primary falls back to backup and promotes it",
+    "valid higher-generation temp is selected and promoted",
+    "invalid higher-looking temp is ignored",
+    "same-generation different valid identities fail closed",
+    "all-invalid existing store is not overwritten",
+    "payload tampering is rejected before world reload",
+    "identical same-generation copies select primary deterministically",
+    "atomic load completes a pending memory-compaction journal without canonical mutation"
+  ],
+  "authorityBoundary": {
+    "canonicalMutationApplied": false,
+    "statement": "Persistence validates and selects complete world snapshots. Snapshot files, candidate roles, generations, and persistence receipts do not create canonical rules."
+  },
+  "githubActions": {
+    "runId": 33377190670,
+    "jobId": 99441212943,
+    "mergeRefSha": "e1a61f0b3b8ccf965fe3015c0ec07d20d8848366",
+    "runtime": "Node.js v22.23.2",
+    "platform": "Ubuntu 24.04",
+    "tests": 67,
+    "passed": 67,
+    "failed": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "durationMs": 2025.432072,
+    "conclusion": "success"
+  },
+  "claimBoundary": [
+    "This is process-exit recovery evidence on the tested GitHub Actions Ubuntu filesystem, not universal sudden power-loss proof.",
+    "AFTER_TEMP_WRITE occurs before temp-file fsync; the test shows survival after process exit only.",
+    "Storage-controller caches, hardware failure, and torn writes below the filesystem are not tested.",
+    "Behavior on every operating system, filesystem, network filesystem, or cross-device path is not established.",
+    "No single-writer lock, lease, fencing token, or compare-and-swap admission gate exists yet.",
+    "Immediate parent linkage is recorded, but complete historical lineage verification is not implemented.",
+    "No one-step transaction yet binds world mutation, scheduler queue, mailbox, compaction journal, and durable generation admission.",
+    "No atomic persistence performance claim is established."
+  ]
+}
