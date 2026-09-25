@@ -77,7 +77,7 @@ function readMarker(root) {
 function assertCapabilityBoundary(packageDocument) {
   if (packageDocument.name !== 'axm-echoworld') throw new Error('unexpected package name');
   if (packageDocument.private !== true) throw new Error('package must remain private to prevent accidental registry publication');
-  if (packageDocument.license !== 'Apache-2.0') throw new Error('unexpected package license declaration');
+  if (packageDocument.license !== 'PolyForm-Noncommercial-1.0.0') throw new Error('unexpected package license declaration');
   const capability = packageDocument.axmCapability;
   if (!capability || capability.schema !== 'axm.capability/v1') throw new Error('axmCapability schema is missing or incompatible');
   if (capability.id !== 'axm.echoworld.deterministic-event-replay') throw new Error('unexpected capability id');
@@ -116,6 +116,8 @@ async function loadExecutableDescriptor(root, sourceIdentity) {
 }
 
 export async function buildArtifacts(root = process.cwd()) {
+  const licenseText = fs.readFileSync(resolveRegularFile(root, 'LICENSE'), 'utf8');
+  if (!licenseText.startsWith('# PolyForm Noncommercial License 1.0.0')) throw new Error('current license evidence drift');
   readMarker(root);
   const packagePath = resolveRegularFile(root, 'package.json');
   const packageDocument = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
