@@ -16,9 +16,9 @@ import {
 const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const EXPECTED_ID = 'axm.echoworld.deterministic-event-replay';
 const EXPECTED_SOURCE_BLOBS = new Map([
-  ['package.json', 'b9e1e1eb6e427874d92f1d207ea4bc2621c778d6'],
+  ['package.json', '0be3cee5e0491bfbfd965da7a4c259ce14f343f8'],
   ['src/capability.js', '3256851d1094339056cf21241871fb386b9aca79'],
-  ['LICENSE', '65ed171955b30c070809e9164d4e22d224e0437e'],
+  ['LICENSE', '1432c873e8d6d55ab8a164193f25553a2d1380ef'],
 ]);
 
 function sha256(text) {
